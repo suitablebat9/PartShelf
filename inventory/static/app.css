@@ -27,7 +27,7 @@ html:has(body[data-theme=dark]){color-scheme:dark;--scroll-track:#161e30;--scrol
 /* Recognizable provider actions, kept consistent on light and dark pages. */
 .auth-icon{width:20px;height:20px;flex:0 0 20px;vertical-align:middle}
 .auth-alternatives button,.google-button{display:inline-flex;align-items:center;justify-content:center;gap:12px;min-height:44px}
-button.google-button{background:#fff;color:#1f1f1f;border:1px solid #747775;border-radius:6px}
+button.google-button{background:#fff;color:#1f1f1f!important;border:1px solid #747775;border-radius:6px}
 button.google-button:hover{background:#f2f5fa;color:#1f1f1f}
 .demo-banner{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
 .demo-banner a{font-weight:600}.login input[readonly]{opacity:.8}
