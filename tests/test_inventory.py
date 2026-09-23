@@ -273,3 +273,14 @@ def test_label_margins_constrain_printed_content(client):
         settings(dict(width='1',margin_left='.5',margin_right='.5'))
     with pytest.raises(ValueError):
         settings(dict(margin_top='-1'))
+
+
+def test_zero_margin_codes_fill_label_edges():
+    from inventory.label_pdf import settings, render_pdf, preview_png
+    from PIL import Image, ImageChops
+    for mode in ('qr', 'barcode'):
+        options = settings(dict(width='1', height='1', text='', mode=mode,
+                                margin_left='0', margin_right='0', margin_top='0', margin_bottom='0'))
+        image = Image.open(io.BytesIO(preview_png(render_pdf([dict(name='Part', code='R1')], options)))).convert('RGB')
+        bbox = ImageChops.difference(image, Image.new('RGB', image.size, 'white')).getbbox()
+        assert bbox == (0, 0, image.width, image.height)

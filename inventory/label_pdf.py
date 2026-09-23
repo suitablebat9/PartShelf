@@ -88,7 +88,7 @@ def render_pdf(items, options):
             tx, ty, tw, th = left, bottom, area_w, area_h
             if options['mode'] == 'qr':
                 size = min(area_h, area_w * (.42 if text else 1))
-                image = qrcode.make(item['code']).convert('RGB')
+                image = qrcode.make(item['code'], border=0 if not any((left, right, top, bottom)) else 4).convert('RGB')
                 x = left if text else left+(area_w-size)/2
                 canvas.drawImage(ImageReader(image), x, bottom+(area_h-size)/2, size, size)
                 if text:
@@ -97,9 +97,9 @@ def render_pdf(items, options):
             elif options['mode'] == 'barcode':
                 if not item['code'] or any(ord(c) < 32 or ord(c) > 126 for c in item['code']):
                     raise ValueError(f"{item['name']}: Code 128 needs printable ASCII. Choose QR or change its identifier.")
-                code_h = area_h * (.52 if text else .85)
-                code = Code128(item['code'], barWidth=.7, barHeight=code_h, humanReadable=False, quiet=True)
-                scale = min(1, area_w/code.width)
+                code_h = area_h * (.52 if text else 1)
+                code = Code128(item['code'], barWidth=.7, barHeight=code_h, humanReadable=False, quiet=bool(left or right))
+                scale = area_w/code.width
                 if .7*scale < .35:
                     raise ValueError(f"{item['name']}: this barcode is too dense for the label. Increase label width or use QR.")
                 canvas.saveState()

@@ -6,14 +6,10 @@
 <section class="panel"><h2>Component details</h2><div class="form-grid">
 <label>Name<input id="part-name" name="name" required value="{{ item.get('name','') }}"></label>
 <label>Name_ID<input id="part-id" name="name_id" value="{{ item.get('name_id','') }}" placeholder="Defaults to name"></label>
-<label>Category<select name="category" id="category-select" data-custom-choice="category-new"><option value="">Uncategorized</option>{% for c in categories %}<option value="{{ c.name }}" {{ 'selected' if item.get('category')==c.name }}>{{ c.name }}</option>{% endfor %}<option value="__new__">＋ Add a new category…</option></select></label>
-<label id="category-new" hidden>New category<input name="new_category" disabled></label>
-<label>Storage area<select name="location_id"><option value="">Unassigned</option>{% for l in locations %}<option value="{{ l.id }}" {{ 'selected' if item.get('location_id')==l.id }}>{{ l.path }}</option>{% endfor %}</select></label>
-<div class="wide"><label class="check-label"><input type="checkbox" id="create-storage" name="create_storage" value="1"> Create a new storage area here</label><div id="new-storage-fields" class="form-grid" hidden>
-<label>New storage name<input name="new_location_name" placeholder="e.g. Drawer A3"></label>
-<label>Storage type<select name="new_location_kind">{% for kind in ['Bin','Drawer','Cabinet','Closet','Room','Shelf','Other'] %}<option>{{ kind }}</option>{% endfor %}</select></label>
-<label>Inside<select name="new_location_parent"><option value="">Top level</option>{% for l in locations %}<option value="{{ l.id }}">{{ l.path }}</option>{% endfor %}</select></label>
-<p class="hint">Created and assigned when you save this component.</p></div></div>
+<label>Category<select name="category" id="category-select" data-create-dialog="category-dialog"><option value="">Uncategorized</option>{% for c in categories %}<option value="{{ c.name }}" {{ 'selected' if item.get('category')==c.name }}>{{ c.name }}</option>{% endfor %}<option value="__new__">＋ Add a new category…</option></select></label>
+
+<label>Storage area<select name="location_id" id="storage-select" data-create-dialog="storage-dialog"><option value="">Unassigned</option>{% for l in locations %}<option value="{{ l.id }}" {{ 'selected' if item.get('location_id')==l.id }}>{{ l.path }}</option>{% endfor %}<option value="__new__">＋ Add a new storage area…</option></select></label>
+<input type="hidden" name="create_storage" value=""><input type="hidden" name="new_location_name"><input type="hidden" name="new_location_kind" value="Bin"><input type="hidden" name="new_location_parent">
 <div class="wide"><label for="part-tags">Tags</label><input type="hidden" id="saved-tags" name="tags" value="{{ item.get('tags','') }}"><div id="selected-tags" class="tag-suggestions" aria-label="Selected tags"></div><div class="tag-entry"><input id="part-tags" placeholder="Type a tag and press Enter" aria-describedby="tag-help"><button type="button" id="add-tag" class="secondary">Add tag</button></div><span id="tag-help" class="hint">Press Enter to add a tag, then type the next one. Click × to remove a tag.</span><span id="tag-status" class="hint" aria-live="polite"></span></div>
 <div class="wide tag-suggestions">{% for tag in tags %}<button type="button" class="tag-choice secondary" data-tag="{{ tag.name }}">＋ {{ tag.name }}</button>{% endfor %}</div>
 <label class="wide">Description<textarea name="description" rows="3">{{ item.get('description','') }}</textarea></label>
@@ -45,4 +41,7 @@
 <label>Image URL<input name="image_url" value="{{ item.get('image','') }}" placeholder="https://…"></label><label>Or upload image<input name="image" type="file" accept="image/png,image/jpeg,image/webp,image/gif"></label>
 </div><p class="hint">Uploads are kept on your server (12 MB request limit). An upload takes priority over its URL. External image URLs are saved as links.</p></section>
 <div class="form-actions"><a href="/" class="button secondary">Cancel</a><button>Save component</button></div>
-</form>{% endblock %}
+</form>
+<dialog id="category-dialog" aria-labelledby="category-dialog-title"><form method="dialog"><h2 id="category-dialog-title">Create category</h2><label>Category name<input id="dialog-category-name" required maxlength="120" autofocus></label><p class="hint">Created with this component when you save.</p><div class="actions"><button type="button" data-close-dialog class="secondary">Cancel</button><button>Create category</button></div></form></dialog>
+<dialog id="storage-dialog" aria-labelledby="storage-dialog-title"><form method="dialog"><h2 id="storage-dialog-title">Create storage area</h2><label>Storage name<input id="dialog-storage-name" required maxlength="120" autofocus></label><label>Storage type<select id="dialog-storage-kind">{% for kind in ['Bin','Drawer','Cabinet','Closet','Room','Shelf','Other'] %}<option>{{ kind }}</option>{% endfor %}</select></label><label>Inside<select id="dialog-storage-parent"><option value="">Top level</option>{% for l in locations %}<option value="{{ l.id }}">{{ l.path }}</option>{% endfor %}</select></label><p class="hint">Created and assigned when you save this component.</p><div class="actions"><button type="button" data-close-dialog class="secondary">Cancel</button><button>Create storage area</button></div></form></dialog>
+{% endblock %}

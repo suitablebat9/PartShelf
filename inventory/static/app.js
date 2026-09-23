@@ -37,11 +37,6 @@ if(purchaseQty){
   document.querySelector('#stock').addEventListener('input',e=>{if(document.querySelector('#component-form').dataset.new==='true'&&!manualQuantity){purchaseQty.value=e.target.value;prices()}});
   prices();
 }
-document.querySelector('#create-storage')?.addEventListener('change',e=>{
-  document.querySelector('#new-storage-fields').hidden=!e.target.checked;
-  document.querySelector('[name="new_location_name"]').required=e.target.checked;
-  document.querySelector('[name="location_id"]').disabled=e.target.checked;
-});
 const componentForm=document.querySelector('#component-form');
 if(componentForm){
   const tagInput=document.querySelector('#part-tags'),savedTags=document.querySelector('#saved-tags'),tagList=document.querySelector('#selected-tags'),tagStatus=document.querySelector('#tag-status');
@@ -69,11 +64,64 @@ if(componentForm){
     function update(){const custom=select.value==='__new__';label.hidden=!custom;input.disabled=!custom;input.required=custom}
     select.addEventListener('change',update);update();
   });
+  document.querySelectorAll('[data-create-dialog]').forEach(select=>{
+    const dialog=document.getElementById(select.dataset.createDialog);
+    let previous=select.value;
+    select.addEventListener('change',()=>{
+      if(select.value==='__new__'){select.value=previous;dialog.showModal()}
+      else{previous=select.value;if(select.id==='storage-select')componentForm.elements.create_storage.value=select.value==='__pending_storage__'?'1':''}
+    });
+    dialog.querySelector('[data-close-dialog]').addEventListener('click',()=>dialog.close());
+    dialog.querySelector('form').addEventListener('submit',e=>{
+      e.preventDefault();
+      const storage=select.id==='storage-select';
+      const input=dialog.querySelector(storage?'#dialog-storage-name':'#dialog-category-name');
+      const name=input.value.trim();if(!name){input.setCustomValidity('Enter a name.');input.reportValidity();return}
+      input.setCustomValidity('');
+      const value=storage?'__pending_storage__':name;
+      let option=[...select.options].find(o=>o.value===value);
+      if(!option){option=new Option(name,value);select.add(option,select.options.length-1)}
+      option.textContent=name+(storage?' (new)':'');select.value=value;previous=value;
+      if(storage){
+        componentForm.elements.create_storage.value='1';componentForm.elements.new_location_name.value=name;
+        componentForm.elements.new_location_kind.value=dialog.querySelector('#dialog-storage-kind').value;
+        componentForm.elements.new_location_parent.value=dialog.querySelector('#dialog-storage-parent').value;
+      }
+      dirty=true;dialog.close();select.focus();
+    });
+    dialog.querySelector('input').addEventListener('input',e=>e.target.setCustomValidity(''));
+  });
   renderTags();
 }
 document.querySelectorAll('.facet-search').forEach(input=>input.addEventListener('input',()=>{
   const query=input.value.trim().toLocaleLowerCase();input.closest('.facet').querySelectorAll('[data-facet-value]').forEach(row=>{row.hidden=!row.dataset.facetValue.includes(query)});
 }));
+const filterForm=document.querySelector('#inventory-filters');
+if(filterForm){
+  const status=document.querySelector('#filter-status'),results=document.querySelector('#inventory-results');
+  let timer,controller,revision=0;
+  async function applyFilters(version){
+    controller=new AbortController();const url='/search?'+new URLSearchParams(new FormData(filterForm));
+    try{
+      const response=await fetch(url,{signal:controller.signal});
+      if(!response.ok)throw new Error('Request failed');
+      const page=new DOMParser().parseFromString(await response.text(),'text/html');
+      if(version!==revision)return;
+      const next=page.querySelector('#inventory-results');if(!next)throw new Error('Sign in again');
+      results.innerHTML=next.innerHTML;
+      const choices=[...page.querySelectorAll('.filter-choice input')];
+      filterForm.querySelectorAll('.filter-choice input').forEach(input=>{
+        const match=choices.find(c=>c.name===input.name&&c.value===input.value);
+        if(match){input.disabled=match.disabled;const count=input.closest('label').querySelector('small');if(count)count.textContent=match.closest('label').querySelector('small').textContent}
+      });
+      history.replaceState(null,'',url);status.textContent='Filters are up to date.';results.removeAttribute('aria-busy');
+    }catch(error){if(error.name!=='AbortError'&&version===revision){status.textContent='Could not update filters. Change a selection or press Search to retry.';results.removeAttribute('aria-busy')}}
+  }
+  function scheduleFilters(){clearTimeout(timer);controller?.abort();const version=++revision;status.textContent='Updating results…';results.setAttribute('aria-busy','true');timer=setTimeout(()=>applyFilters(version),250)}
+  filterForm.addEventListener('change',e=>{if(e.target.name)scheduleFilters()});
+  filterForm.querySelector('[name="q"]').addEventListener('input',scheduleFilters);
+  filterForm.addEventListener('submit',e=>{e.preventDefault();scheduleFilters()});
+}
 document.querySelector('#label-preset')?.addEventListener('change',e=>{if(e.target.value){const [w,h]=e.target.value.split(',');document.querySelector('#label-width').value=w;document.querySelector('#label-height').value=h}});
 const labelForm=document.querySelector('#label-form');
 if(labelForm){
@@ -99,8 +147,7 @@ if(labelForm){
   labelForm.addEventListener('change',settingsChanged);
   labelForm.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.tagName==='INPUT'){e.preventDefault();schedulePreview(true)}});
   labelForm.addEventListener('submit',e=>{
-    if(e.submitter?.getAttribute('formtarget')==='label-preview'){e.preventDefault();schedulePreview(true)}
-    else if(!checkboxes.some(c=>c.checked)){e.preventDefault();alert('Select at least one component.');}
+    if(!checkboxes.some(c=>c.checked)){e.preventDefault();alert('Select at least one component.');}
   });
   countLabels();
 }
