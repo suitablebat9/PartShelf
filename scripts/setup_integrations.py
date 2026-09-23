@@ -17,7 +17,7 @@ def update_env(path, values):
             raise ValueError('Configuration values must be single lines.')
         lines.append(key+'="'+value.replace('\\','\\\\').replace('"','\\"')+'"')
     temporary=path.with_suffix('.env.tmp')
-    with temporary.open('w',opener=lambda name,flags:os.open(name,flags,0o600)) as output:
+    with open(temporary,'w',opener=lambda name,flags:os.open(name,flags,0o600)) as output:
         output.write('\n'.join(lines)+'\n')
     temporary.chmod(0o600)
     temporary.replace(path)
