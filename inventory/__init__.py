@@ -1,4 +1,3 @@
-import functools
 import io
 import os
 import secrets
@@ -56,6 +55,7 @@ def create_app(test_config=None):
         db().execute('PRAGMA journal_mode=WAL')
         db().executescript(SCHEMA)
         db().commit()
+        g.pop('db').close()
 
     @app.teardown_appcontext
     def close_db(error=None):
@@ -218,6 +218,8 @@ def create_app(test_config=None):
                 db().execute('INSERT OR IGNORE INTO categories(name) VALUES(?)', (category,))
                 category_id = one('SELECT id FROM categories WHERE name=?', (category,))['id']
             values = dict(name=name, name_id=f.get('name_id', '').strip() or name, stock=float(stock), unit=f.get('unit', '').strip() or 'pcs', unit_price=str(price.quantize(Decimal('0.000001'))), description=f.get('description', '').strip(), category_id=category_id, location_id=f.get('location_id') or None, supplier=f.get('supplier', '').strip(), supplier_url=safe_url(f.get('supplier_url', '').strip()), attributes=f.get('attributes', '').strip(), code=f.get('code', '').strip() or item.get('code') or 'PART-' + secrets.token_hex(5).upper())
+            if len(values['code'].encode('utf-8')) > 512:
+                raise ValueError('Scan identifiers must be 512 bytes or fewer for printable codes.')
             for field in ('image', 'datasheet'):
                 url = f.get(field + '_url', '').strip()
                 current = item.get(field, '')
@@ -328,7 +330,7 @@ def create_app(test_config=None):
         font = request.args.get('font', 'sans-serif')
         if mode not in ('qr', 'barcode', 'none') or font not in ('sans-serif', 'serif', 'monospace'):
             raise ValueError('Invalid label options.')
-        return render_template('labels.html', items=items, selected=selected, width=width, height=height, size=size, mode=mode, font=font, label_text=request.args.get('text', selected['name'] + '\n' + selected['name_id'] if selected else ''), copies=min(100, max(1, int(request.args.get('copies', '1')))))
+        return render_template('labels.html', items=items, selected=selected, width=width, height=height, size=size, mode=mode, font=font, label_text=request.args.get('text', selected['name'] + ('\n' + selected['name_id'] if selected['name_id'] != selected['name'] else '') if selected else ''), copies=min(100, max(1, int(request.args.get('copies', '1')))))
 
     @app.get('/codes/<int:item_id>/<mode>')
     def code_image(item_id, mode):

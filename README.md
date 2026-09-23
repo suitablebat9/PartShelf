@@ -37,7 +37,7 @@ Open http://127.0.0.1:8000 and sign in. Local data goes into `data/`, excluded f
 .venv/bin/python -m pytest -q
 ```
 
-Tests cover login and CSRF, validation, category creation, price conversion, filtering, stale edits, stock protection, project totals and atomic deductions, local attachments, generated labels, and shared server state. CI repeats them on Linux with Python 3.13 and 3.14.
+Tests cover login and CSRF, validation, category creation, price conversion, filtering, stale edits, stock protection, project totals and atomic deductions, local attachments, generated labels, shared server state, atomic release activation, and preflight update failure. CI repeats them on Linux with Python 3.13 and 3.14.
 
 ## Update the LXC
 
@@ -65,7 +65,6 @@ scripts/backup.py          Consistent server-data backup
 scripts/manage_user.py     Create/reset login credentials interactively
 scripts/patch_code.py      Apply a reviewed unified code patch via Python
 scripts/publish.py         Publish local code with Git
-scripts/                 
 docs/PROXMOX.md             Complete installation and operating guide
 deploy/                    systemd and Nginx configuration
 tests/                     Functional tests

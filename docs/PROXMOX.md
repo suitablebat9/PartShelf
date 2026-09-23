@@ -132,7 +132,7 @@ python3 scripts/patch_code.py /path/to/change.patch
 python3 scripts/publish.py --message "Describe the change"
 ```
 
-`patch_code.py` checks the patch first and refuses a dirty working tree. `publish.py` requires a clean starting publication workflow, shows the paths to commit and asks for confirmation; Git handles authentication. No tokens are stored by these scripts. See `--help` for options.
+`patch_code.py` checks the patch first and refuses a dirty working tree. `publish.py` shows the paths to commit and asks for confirmation; Git handles authentication. No tokens are stored by these scripts. See `--help` for options.
 
 ## Troubleshooting
 
