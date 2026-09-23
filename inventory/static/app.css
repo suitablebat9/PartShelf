@@ -32,3 +32,5 @@ button.google-button:hover{background:#f2f5fa;color:#1f1f1f}
 .demo-banner{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
 .demo-banner a{font-weight:600}.login input[readonly]{opacity:.8}
 .form-fields{border:0;padding:0;margin:0;min-width:0}.form-fields:disabled{opacity:.6}
+.inline-form>.form-fields{display:flex;align-items:end;gap:16px;width:100%}
+@media(max-width:700px){.inline-form>.form-fields{display:block}}
