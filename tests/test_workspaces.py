@@ -116,7 +116,7 @@ def test_platform_and_workspace_authorization(client, app):
     c.get('/login')
     with c.session_transaction() as s:
         csrf = s['csrf']
-    assert c.post('/login', data=dict(csrf=csrf, username='Client A', password='password-123')).status_code == 401
+    assert c.post('/login', data=dict(csrf=csrf, username='Client A', password='password-123')).status_code == 403
     assert post(client, '/management/workspaces/1/status', active='0').status_code == 400
     assert post(client, f'/management/workspaces/{wid}/status', active='1').status_code == 302
     assert c.get('/').status_code == 302  # old sessions stay revoked

@@ -21,6 +21,13 @@ from webauthn import generate_registration_options, generate_authentication_opti
 from webauthn.helpers import bytes_to_base64url, base64url_to_bytes
 from webauthn.helpers.structs import AuthenticatorSelectionCriteria, ResidentKeyRequirement, UserVerificationRequirement, PublicKeyCredentialDescriptor
 from .mailer import mail_ready, send_email
+from werkzeug.exceptions import Forbidden
+
+
+class AccountUnavailable(Forbidden):
+    def __init__(self, workspace=False):
+        super().__init__()
+        self.workspace = workspace
 
 
 def install_auth(app, db):
@@ -88,8 +95,12 @@ def install_auth(app, db):
 
     def user_by_id(user_id):
         user = db().execute('SELECT * FROM users WHERE id=?', (user_id,)).fetchone()
-        if not user or not user['active'] or not db().execute('SELECT 1 FROM workspaces WHERE id=? AND active=1', (user['workspace_id'],)).fetchone():
+        if not user:
             abort(401)
+        if not db().execute('SELECT 1 FROM workspaces WHERE id=? AND active=1 AND deleted_at IS NULL', (user['workspace_id'],)).fetchone():
+            raise AccountUnavailable(workspace=True)
+        if not user['active'] or user['deleted_at']:
+            raise AccountUnavailable()
         return user
 
     def authenticate():
@@ -98,7 +109,7 @@ def install_auth(app, db):
         if token:
             auth_session = db().execute('SELECT * FROM auth_sessions WHERE token_hash=? AND expires>?', (digest(token), int(time.time()))).fetchone()
             if auth_session:
-                candidate = db().execute('SELECT u.* FROM users u JOIN workspaces w ON w.id=u.workspace_id WHERE u.id=? AND u.active=1 AND w.active=1', (auth_session['user_id'],)).fetchone()
+                candidate = db().execute('SELECT u.* FROM users u JOIN workspaces w ON w.id=u.workspace_id WHERE u.id=? AND u.active=1 AND w.active=1 AND u.deleted_at IS NULL AND w.deleted_at IS NULL', (auth_session['user_id'],)).fetchone()
                 if not candidate:
                     session.clear()
                     return
@@ -173,10 +184,14 @@ def install_auth(app, db):
             username = request.form.get('username','').strip()
             limit('password:'+username.casefold())
             limit('password-global:'+str(request.remote_addr), 100, 900)
-            user = db().execute('SELECT * FROM users WHERE username=?', (username,)).fetchone()
+            candidates = db().execute('SELECT * FROM users WHERE username=? COLLATE NOCASE OR email=? COLLATE NOCASE', (username, username)).fetchall()
+            # Never pick arbitrarily if a legacy username collides with another account's email.
+            user = candidates[0] if len(candidates) == 1 else None
+            if user:
+                limit('password-account:'+str(user['id']))
             if user and check_password_hash(user['password'], request.form.get('password','')):
                 return start_login(user, request.form.get('remember')=='1')
-            flash('Incorrect username or password.', 'error')
+            flash('Incorrect username, email, or password.', 'error')
         return render_template('login.html', google_ready=google_ready(), passkey_ready=passkey_ready())
 
     def logout():
@@ -256,6 +271,8 @@ def install_auth(app, db):
         pending = consume('verify_email', request.form.get('code',''))
         if pending['user_id'] != g.user['id']:
             abort(403)
+        if db().execute('SELECT 1 FROM users WHERE username=? COLLATE NOCASE AND id!=?', (pending['payload']['email'], g.user['id'])).fetchone():
+            raise ValueError('This email conflicts with an existing username. Contact support.')
         db().execute('UPDATE users SET email=?,email_verified=1 WHERE id=?', (pending['payload']['email'],g.user['id']))
         revoke_others();db().commit();flash('Email verified.')
         return redirect(url_for('auth.account'))
@@ -407,7 +424,11 @@ def install_auth(app, db):
     def google_login():
         if not google_ready():
             raise ValueError('Google sign-in has not been configured on this server.')
-        challenge('google_flow',payload={'mode':'login','remember':request.form.get('remember')=='1'})
+        mode = 'signup' if request.form.get('mode') == 'signup' else 'login'
+        if mode == 'signup' and db().execute("SELECT value FROM site_settings WHERE key='registration_enabled'").fetchone()[0] != '1':
+            raise ValueError('Public registration is currently closed.')
+        limit('google-start:'+str(request.remote_addr), 30, 900)
+        challenge('google_flow',payload={'mode':mode,'remember':request.form.get('remember')=='1'})
         return google.authorize_redirect(app.config['PUBLIC_URL']+'/auth/google/callback',prompt='select_account')
 
     @bp.post('/account/google/link')
@@ -428,7 +449,7 @@ def install_auth(app, db):
                 raise ValueError()
         except Exception:
             raise ValueError('Google sign-in could not be verified. Start again from the sign-in page.') from None
-        # Only an explicitly linked Google subject can sign in. No automatic email matching or public registration.
+        # Existing accounts must be linked explicitly; never merge by matching email.
         if pending['payload']['mode']=='link':
             if not g.user or pending['user_id']!=g.user['id'] or pending['payload']['sid']!=digest(session.get('sid','')):
                 abort(403)
@@ -438,6 +459,16 @@ def install_auth(app, db):
             revoke_others();db().commit();flash('Google account linked. You can use it to sign in next time.')
             return redirect(url_for('auth.account'))
         user=db().execute('SELECT * FROM users WHERE google_sub=?',(identity['sub'],)).fetchone()
+        if not user and pending['payload']['mode'] == 'signup':
+            if db().execute("SELECT value FROM site_settings WHERE key='registration_enabled'").fetchone()[0] != '1':
+                raise ValueError('Public registration is currently closed.')
+            email = str(identity.get('email', '')).strip().lower()
+            if len(email) > 254 or not re.fullmatch(r'[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+', email):
+                raise ValueError('Google did not return a valid verified email.')
+            if db().execute('SELECT 1 FROM users WHERE email=? COLLATE NOCASE OR username=? COLLATE NOCASE', (email, email)).fetchone():
+                raise ValueError('This email already has an account. Sign in with your password and link Google in Account & security.')
+            challenge('google_registration', payload={'email':email, 'sub':identity['sub']})
+            return redirect(url_for('manage.google_registration'))
         if not user:
             raise ValueError('This Google account is not linked. Sign in with your existing account, then link Google in Account settings.')
         return start_login(user,pending['payload']['remember'])

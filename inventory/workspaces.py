@@ -15,6 +15,9 @@ def migrate_registry(db):
                 db.execute(f'ALTER TABLE users ADD COLUMN {name} {kind}')
         if first_upgrade:
             db.execute("UPDATE users SET platform_admin=1,role='owner' WHERE id=(SELECT MIN(id) FROM users)")
+        for table in ('users', 'workspaces'):
+            if 'deleted_at' not in {r[1] for r in db.execute(f'PRAGMA table_info({table})')}:
+                db.execute(f'ALTER TABLE {table} ADD COLUMN deleted_at TEXT')
         # SQLite cannot add a foreign key with a non-NULL default to a populated table.
         for event in ('INSERT', 'UPDATE OF workspace_id'):
             name = 'users_workspace_insert' if event == 'INSERT' else 'users_workspace_update'

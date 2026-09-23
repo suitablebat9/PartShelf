@@ -4,6 +4,7 @@ import ssl
 import time
 from decimal import Decimal
 from email.message import EmailMessage
+from email.utils import formataddr, parseaddr
 from flask import current_app
 
 
@@ -15,7 +16,10 @@ def send_email(recipient, subject, text):
     if not mail_ready():
         raise ValueError('Business email delivery has not been configured on the server yet.')
     message = EmailMessage()
-    message['From'] = current_app.config['MAIL_FROM']
+    sender = parseaddr(current_app.config['MAIL_FROM'])[1]
+    if not sender or '@' not in sender or any(c in sender for c in '\r\n'):
+        raise ValueError('Configure a valid business sender address on the server.')
+    message['From'] = formataddr(('PCB Studios · Partshelf', sender))
     message['To'] = recipient
     message['Reply-To'] = 'support@pcb-studios.com'
     message['Subject'] = subject
@@ -30,7 +34,7 @@ def send_email(recipient, subject, text):
             if config['SMTP_PORT'] != 465:
                 client.starttls(context=ssl.create_default_context())
             client.login(config['SMTP_USERNAME'], config['SMTP_PASSWORD'])
-            client.send_message(message)
+            client.send_message(message, from_addr=sender, to_addrs=[recipient])
     except (smtplib.SMTPException, OSError):
         raise ValueError('Email could not be sent. Check the server’s Google Workspace mail configuration.') from None
 

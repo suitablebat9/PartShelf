@@ -18,7 +18,7 @@ For a fresh installation, complete the installer's first-user prompt before open
 
 Registration can be paused at any time. It also stays unavailable while HTTPS or mail configuration is missing. Codes expire after 10 minutes, allow five attempts and are browser-bound. Signup and email sends are throttled. Password reset is available from the login page for verified account emails; it revokes old sessions and retains MFA.
 
-Google and passkey sign-in are available after a client creates an account and explicitly links Google or enrolls a passkey. Google sign-in does not automatically create clients or merge accounts by email.
+The registration page also offers **Sign up with Google**. Google must return a verified email; the new client then chooses a workspace name, username and backup password. Existing accounts are never merged by matching email: sign in with a password first and link Google. Passkeys can be enrolled after signup. Password login accepts a username or email, case-insensitively; ambiguous legacy username/email collisions fail closed.
 
 ## Roles and invitations
 
@@ -32,7 +32,7 @@ Google and passkey sign-in are available after a client creates an account and e
 
 Invitations are single-use, expire in 48 hours and can be revoked. Choose **Send invitation by email**, or generate a private link to share yourself. Anyone with a link can claim its invitation, so send it only to its intended recipient. Invited users verify their email separately under Account & security before email MFA, stock notifications or email password recovery are available.
 
-Changes to member role/access revoke their sessions, pending authentication challenges and invitations they created. Suspension blocks all workspace logins, revokes sessions/invitations and stops low-stock alerts. Reactivation does not restore old sessions. The UI prevents editing your own role/access, removing the last active owner, or suspending the platform administrator's own workspace.
+Changes to member role/access revoke their sessions, pending authentication challenges and invitations they created. Suspension blocks all workspace logins, revokes sessions/invitations and stops low-stock alerts. Reactivation does not restore old sessions. The UI prevents editing your own role/access, removing the last active owner, or suspending the platform administrator's own workspace. Platform administrators can delete users and workspaces by typing the exact name in the deletion form. Deletion moves the record to Trash and revokes access. Inventory, files, account identity and MFA/passkeys remain stored for restoration; username/email values stay reserved. Restore controls are available in Client management and workspace settings. There is no permanent purge. Suspended workspace logins show a dedicated support page after credential validation.
 
 Management changes require a sign-in within the last 10 minutes and are recorded in the management activity log. Inventory edits continue using component movement history. Password resets never disable MFA.
 

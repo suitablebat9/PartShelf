@@ -67,3 +67,24 @@ Lost second factor and all recovery codes: the server owner can run `python3 /op
 `ERR_NAME_NOT_RESOLVED` is a DNS failure before a request reaches Partshelf. The application does not limit access to your LAN. Public Google and Cloudflare DNS both resolved `inventory.pcb-studios.com` to Cloudflare addresses during this update; the Mac’s system resolver did too. No tunnel/DNS settings were changed.
 
 For access without a browser-specific DNS override, the normal resolver must return the same public record. In Cloudflare, ensure the hostname has a proxied tunnel CNAME to your tunnel’s `<id>.cfargotunnel.com` and no conflicting A/AAAA records. Check any home router/AdGuard/local DNS overrides and stale negative caches, and verify the same hostname from a second network. A filtering resolver can block a hostname even while other tunnels work. If it fails again, record the exact browser error and the resolver’s answer before changing anything. [Cloudflare tunnel DNS guide](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/routing-to-tunnel/dns/).
+
+
+## Google error 403: org_internal
+
+This is Google's OAuth audience restriction. External Google accounts cannot authorize a project configured as Internal. For public clients use a dedicated Google Cloud project/app called **Partshelf by PCB Studios** with **External** audience. If the consent screen is named **Cloudflare**, check whether it is shared with Cloudflare Access before changing its audience; a separate Partshelf project avoids changing that integration.
+
+Create a Web application client with this Authorized redirect URI:
+
+`https://inventory.pcb-studios.com/auth/google/callback`
+
+In Testing, add intended test accounts (for example the owner's personal Gmail) as test users; publish to Production for the public rollout and complete any verification Google requires. Enter the new client ID and secret through `setup_integrations.py --credentials`. Secrets stay on the server. New customers should use **Create a workspace → Sign up with Google**.
+
+[Google's audience documentation](https://support.google.com/cloud/answer/15549945?hl=en).
+
+## Sender displays the primary Workspace mailbox
+
+Partshelf sets both the email From header and SMTP envelope sender to `MAIL_FROM` (normally `no-reply@pcb-studios.com`), with the display name **PCB Studios · Partshelf**. SMTP authentication still uses the primary mailbox that owns the alias.
+
+In Gmail, while signed into that primary mailbox, open **Settings → See all settings → Accounts → Send mail as**. Add/verify `no-reply@pcb-studios.com` there if absent. An alias that receives messages in Workspace is not, by itself, evidence the SMTP account is authorized to send as it. If Google still rewrites the From address, inspect a delivered message's original headers and the alias's send-as status; the application cannot force Google to honor an unapproved sender.
+
+Do not change the primary mailbox's default sender unless you also want its ordinary mail to use no-reply. [Gmail send-as instructions](https://support.google.com/mail/answer/22370?hl=en).

@@ -34,7 +34,7 @@ def install_management(app, db, auth):
             raise ValueError('Use a password between 8 and 256 characters.')
         if password != request.form.get('password_confirm'):
             raise ValueError('Passwords do not match.')
-        if db().execute('SELECT 1 FROM users WHERE username=? COLLATE NOCASE', (username,)).fetchone():
+        if db().execute('SELECT 1 FROM users WHERE username=? COLLATE NOCASE OR email=? COLLATE NOCASE', (username, username)).fetchone():
             raise ValueError('That username is unavailable.')
         return username, generate_password_hash(password)
 
@@ -58,7 +58,7 @@ def install_management(app, db, auth):
         return workspace_id
 
     def authorize(workspace_id):
-        workspace = db().execute('SELECT * FROM workspaces WHERE id=?', (workspace_id,)).fetchone()
+        workspace = db().execute('SELECT * FROM workspaces WHERE id=? AND deleted_at IS NULL', (workspace_id,)).fetchone()
         if not workspace:
             abort(404)
         if not g.user['platform_admin'] and not (g.user['workspace_id'] == workspace_id and g.user['role'] in ('owner', 'admin')):
@@ -91,13 +91,39 @@ def install_management(app, db, auth):
             name = request.form.get('workspace_name', '').strip()
             if not name or len(name) > 100:
                 raise ValueError('Enter a workspace name of up to 100 characters.')
-            if db().execute('SELECT 1 FROM users WHERE email=? COLLATE NOCASE', (email,)).fetchone():
+            if db().execute('SELECT 1 FROM users WHERE email=? COLLATE NOCASE OR username=? COLLATE NOCASE', (email, email)).fetchone():
                 raise ValueError('This email already has an account. Sign in or reset your password.')
             code = f'{secrets.randbelow(1000000):06d}'
             auth['challenge']('registration', payload=dict(username=username, password=password, email=email, name=name), code=code)
             send_email(email, 'Verify your new Partshelf workspace', f'Your verification code is {code}. It expires in 10 minutes. Ignore this email if you did not request an account.')
             return redirect(url_for('manage.verify_registration'))
-        return render_template('register.html', ready=ready)
+        google_ready = registration_open() and bool(app.config['GOOGLE_CLIENT_ID'] and app.config['GOOGLE_CLIENT_SECRET'] and app.config['PUBLIC_URL'].startswith('https://'))
+        return render_template('register.html', ready=ready, google_ready=google_ready)
+
+    @bp.route('/register/google', methods=['GET', 'POST'])
+    def google_registration():
+        if not registration_open():
+            abort(403)
+        pending = auth['get_challenge']('google_registration')
+        if request.method == 'POST':
+            auth['limit']('google-signup:'+str(request.remote_addr), 10, 3600)
+            username, password = credentials()
+            payload = auth['consume']('google_registration')['payload']
+            email = email_value(payload['email'])
+            db().execute('BEGIN IMMEDIATE')
+            try:
+                if db().execute('SELECT 1 FROM users WHERE username=? COLLATE NOCASE OR email=? COLLATE NOCASE OR username=? COLLATE NOCASE OR email=? COLLATE NOCASE OR google_sub=?', (username, email, email, username, payload['sub'])).fetchone():
+                    raise ValueError('This username, email or Google account is already registered.')
+                workspace_id = new_workspace(request.form.get('workspace_name', ''))
+                db().execute("INSERT INTO users(username,password,email,email_verified,google_sub,workspace_id,role) VALUES(?,?,?,1,?,?,'owner')", (username, password, email, payload['sub'], workspace_id))
+                audit('workspace.google_registered', workspace_id)
+                db().commit()
+            except Exception:
+                db().rollback()
+                raise
+            flash('Workspace created with your verified Google email. You can now sign in with Google or your password.')
+            return redirect(url_for('login'))
+        return render_template('google_registration.html', email=pending['payload']['email'])
 
     @bp.route('/register/verify', methods=['GET', 'POST'])
     def verify_registration():
@@ -108,7 +134,7 @@ def install_management(app, db, auth):
             payload = auth['consume']('registration', request.form.get('code', ''))['payload']
             db().execute('BEGIN IMMEDIATE')
             try:
-                if db().execute('SELECT 1 FROM users WHERE username=? COLLATE NOCASE OR email=? COLLATE NOCASE', (payload['username'], payload['email'])).fetchone():
+                if db().execute('SELECT 1 FROM users WHERE username=? COLLATE NOCASE OR email=? COLLATE NOCASE OR username=? COLLATE NOCASE OR email=? COLLATE NOCASE', (payload['username'], payload['email'], payload['email'], payload['username'])).fetchone():
                     raise ValueError('The username or email is already registered. Start again.')
                 workspace_id = new_workspace(payload['name'])
                 db().execute("INSERT INTO users(username,password,email,email_verified,workspace_id,role) VALUES(?,?,?,1,?,'owner')",
@@ -126,9 +152,9 @@ def install_management(app, db, auth):
     @bp.get('/management')
     def dashboard():
         if g.user['platform_admin']:
-            workspaces = db().execute('SELECT w.*,COUNT(u.id) AS members FROM workspaces w LEFT JOIN users u ON u.workspace_id=w.id GROUP BY w.id ORDER BY w.id DESC').fetchall()
+            workspaces = db().execute('SELECT w.*,COUNT(u.id) AS members FROM workspaces w LEFT JOIN users u ON u.workspace_id=w.id AND u.deleted_at IS NULL WHERE w.deleted_at IS NULL GROUP BY w.id ORDER BY w.id DESC').fetchall()
             logs = db().execute('SELECT a.*,u.username FROM management_audit a LEFT JOIN users u ON u.id=a.actor_id ORDER BY a.id DESC LIMIT 100').fetchall()
-            return render_template('management.html', workspaces=workspaces, logs=logs, registration_open=registration_open(), mail_ready=mail_ready())
+            return render_template('management.html', workspaces=workspaces, deleted_workspaces=db().execute('SELECT * FROM workspaces WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC').fetchall(), logs=logs, registration_open=registration_open(), mail_ready=mail_ready())
         authorize(g.user['workspace_id'])
         return redirect(url_for('manage.workspace', workspace_id=g.user['workspace_id']))
 
@@ -159,9 +185,9 @@ def install_management(app, db, auth):
     @bp.get('/management/workspaces/<int:workspace_id>')
     def workspace(workspace_id):
         current = authorize(workspace_id)
-        members = db().execute('SELECT id,username,email,role,active,platform_admin FROM users WHERE workspace_id=? ORDER BY username', (workspace_id,)).fetchall()
+        members = db().execute('SELECT id,username,email,role,active,platform_admin FROM users WHERE workspace_id=? AND deleted_at IS NULL ORDER BY username', (workspace_id,)).fetchall()
         invitations = db().execute('SELECT token_hash,email,role,expires FROM invitations WHERE workspace_id=? AND expires>?', (workspace_id, int(time.time()))).fetchall()
-        return render_template('workspace_management.html', workspace=current, members=members, invitations=invitations, roles=ROLES, mail_ready=mail_ready())
+        return render_template('workspace_management.html', workspace=current, members=members, deleted_members=db().execute('SELECT id,username,email FROM users WHERE workspace_id=? AND deleted_at IS NOT NULL', (workspace_id,)).fetchall() if g.user['platform_admin'] else [], invitations=invitations, roles=ROLES, mail_ready=mail_ready())
 
     @bp.post('/management/workspaces/<int:workspace_id>/settings')
     @auth['recent']
@@ -198,7 +224,7 @@ def install_management(app, db, auth):
     def member_change(workspace_id, user_id):
         authorize(workspace_id)
         db().execute('BEGIN IMMEDIATE')
-        target = db().execute('SELECT * FROM users WHERE id=? AND workspace_id=?', (user_id, workspace_id)).fetchone()
+        target = db().execute('SELECT * FROM users WHERE id=? AND workspace_id=? AND deleted_at IS NULL', (user_id, workspace_id)).fetchone()
         if not target:
             abort(404)
         role = request.form.get('role', '')
@@ -253,7 +279,7 @@ def install_management(app, db, auth):
 
     @bp.route('/invite/<token>', methods=['GET', 'POST'])
     def accept_invite(token):
-        invitation = db().execute('SELECT i.*,w.name FROM invitations i JOIN workspaces w ON w.id=i.workspace_id WHERE i.token_hash=? AND i.expires>? AND w.active=1', (auth['digest'](token), int(time.time()))).fetchone()
+        invitation = db().execute('SELECT i.*,w.name FROM invitations i JOIN workspaces w ON w.id=i.workspace_id WHERE i.token_hash=? AND i.expires>? AND w.active=1 AND w.deleted_at IS NULL', (auth['digest'](token), int(time.time()))).fetchone()
         if not invitation:
             abort(404, 'This invitation has expired or was revoked.')
         if request.method == 'POST':
@@ -262,12 +288,12 @@ def install_management(app, db, auth):
             db().execute('BEGIN IMMEDIATE')
             try:
                 # Revalidate single-use status inside the write transaction.
-                removed = db().execute('DELETE FROM invitations WHERE token_hash=? AND expires>? AND workspace_id IN (SELECT id FROM workspaces WHERE active=1)', (invitation['token_hash'], int(time.time()))).rowcount
+                removed = db().execute('DELETE FROM invitations WHERE token_hash=? AND expires>? AND workspace_id IN (SELECT id FROM workspaces WHERE active=1 AND deleted_at IS NULL)', (invitation['token_hash'], int(time.time()))).rowcount
                 if not removed:
                     raise ValueError('This invitation has expired or was used.')
                 if db().execute('SELECT COUNT(*) FROM users WHERE workspace_id=?', (invitation['workspace_id'],)).fetchone()[0] >= int(os.environ.get('MAX_WORKSPACE_MEMBERS', '100')):
                     raise ValueError('Workspace member capacity has been reached.')
-                if db().execute('SELECT 1 FROM users WHERE username=? COLLATE NOCASE OR email=? COLLATE NOCASE', (username, invitation['email'])).fetchone():
+                if db().execute('SELECT 1 FROM users WHERE username=? COLLATE NOCASE OR email=? COLLATE NOCASE OR username=? COLLATE NOCASE OR email=? COLLATE NOCASE', (username, invitation['email'], invitation['email'], username)).fetchone():
                     raise ValueError('This username or email already has an account. Use a different account email; accounts belong to one workspace.')
                 db().execute('INSERT INTO users(username,password,email,workspace_id,role) VALUES(?,?,?,?,?)', (username, password, invitation['email'], invitation['workspace_id'], invitation['role']))
                 audit('invitation.accepted', invitation['workspace_id'])
@@ -285,7 +311,7 @@ def install_management(app, db, auth):
             auth['limit']('reset-ip:'+str(request.remote_addr), 10, 3600)
             email = email_value(request.form.get('email', ''))
             auth['limit']('reset-email:'+email, 3, 3600)
-            user = db().execute('SELECT u.* FROM users u JOIN workspaces w ON w.id=u.workspace_id WHERE u.email=? COLLATE NOCASE AND u.email_verified=1 AND u.active=1 AND w.active=1', (email,)).fetchone()
+            user = db().execute('SELECT u.* FROM users u JOIN workspaces w ON w.id=u.workspace_id WHERE u.email=? COLLATE NOCASE AND u.email_verified=1 AND u.active=1 AND w.active=1 AND u.deleted_at IS NULL AND w.deleted_at IS NULL', (email,)).fetchone()
             if user and mail_ready():
                 code = f'{secrets.randbelow(1000000):06d}'
                 auth['challenge']('password_reset', user['id'], code=code)
@@ -314,5 +340,73 @@ def install_management(app, db, auth):
             flash('Password reset. Sign in again; your existing two-step verification still applies.')
             return redirect(url_for('login'))
         return render_template('reset_password.html')
+
+
+    @bp.post('/management/workspaces/<int:workspace_id>/delete')
+    @platform
+    @auth['recent']
+    def delete_workspace(workspace_id):
+        current = authorize(workspace_id)
+        if workspace_id == g.user['workspace_id'] or workspace_id == 1:
+            raise ValueError('The platform administration workspace cannot be deleted.')
+        if request.form.get('confirm_name') != current['name']:
+            raise ValueError('Type the workspace name exactly to confirm deletion.')
+        db().execute('BEGIN IMMEDIATE')
+        db().execute('UPDATE workspaces SET active=0,deleted_at=CURRENT_TIMESTAMP WHERE id=?', (workspace_id,))
+        for member in db().execute('SELECT id FROM users WHERE workspace_id=?', (workspace_id,)).fetchall():
+            revoke(member['id'])
+        db().execute('DELETE FROM invitations WHERE workspace_id=?', (workspace_id,))
+        audit('workspace.deleted', workspace_id)
+        db().commit()
+        flash('Workspace moved to Trash. Access is blocked; its data can be restored.')
+        return redirect(url_for('manage.dashboard'))
+
+    @bp.post('/management/workspaces/<int:workspace_id>/restore')
+    @platform
+    @auth['recent']
+    def restore_workspace(workspace_id):
+        row = db().execute('SELECT id FROM workspaces WHERE id=? AND deleted_at IS NOT NULL', (workspace_id,)).fetchone()
+        if not row:
+            abort(404)
+        db().execute('UPDATE workspaces SET deleted_at=NULL,active=1 WHERE id=?', (workspace_id,))
+        audit('workspace.restored', workspace_id)
+        db().commit()
+        flash('Workspace restored. Members must sign in again.')
+        return redirect(url_for('manage.workspace', workspace_id=workspace_id))
+
+    @bp.post('/management/workspaces/<int:workspace_id>/members/<int:user_id>/delete')
+    @platform
+    @auth['recent']
+    def delete_member(workspace_id, user_id):
+        authorize(workspace_id)
+        db().execute('BEGIN IMMEDIATE')
+        target = db().execute('SELECT * FROM users WHERE id=? AND workspace_id=? AND deleted_at IS NULL', (user_id, workspace_id)).fetchone()
+        if not target:
+            abort(404)
+        if user_id == g.user['id'] or target['platform_admin']:
+            raise ValueError('Platform administrators and your own account cannot be deleted here.')
+        if request.form.get('confirm_name') != target['username']:
+            raise ValueError('Type the username exactly to confirm deletion.')
+        if target['role'] == 'owner' and target['active'] and db().execute("SELECT COUNT(*) FROM users WHERE workspace_id=? AND role='owner' AND active=1 AND deleted_at IS NULL AND id!=?", (workspace_id, user_id)).fetchone()[0] == 0:
+            raise ValueError('Keep an active workspace owner, or delete the entire workspace.')
+        db().execute('UPDATE users SET active=0,deleted_at=CURRENT_TIMESTAMP WHERE id=?', (user_id,))
+        revoke(user_id)
+        audit('member.deleted', workspace_id, 'user='+str(user_id))
+        db().commit()
+        flash('User moved to Trash and signed out of all devices.')
+        return redirect(url_for('manage.workspace', workspace_id=workspace_id))
+
+    @bp.post('/management/workspaces/<int:workspace_id>/members/<int:user_id>/restore')
+    @platform
+    @auth['recent']
+    def restore_member(workspace_id, user_id):
+        authorize(workspace_id)
+        changed = db().execute('UPDATE users SET deleted_at=NULL,active=1 WHERE id=? AND workspace_id=? AND deleted_at IS NOT NULL', (user_id, workspace_id)).rowcount
+        if not changed:
+            abort(404)
+        audit('member.restored', workspace_id, 'user='+str(user_id))
+        db().commit()
+        flash('User restored. They must sign in again.')
+        return redirect(url_for('manage.workspace', workspace_id=workspace_id))
 
     app.register_blueprint(bp)

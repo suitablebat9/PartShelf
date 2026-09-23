@@ -140,7 +140,7 @@ def create_app(test_config=None):
                 g.user = None
         if request.method == 'POST' and not secrets.compare_digest(session.get('csrf', ''), request.headers.get('X-CSRF-Token', request.form.get('csrf', '!'))):
             abort(400, 'Invalid form token. Reload the page and try again.')
-        if request.endpoint not in ('login', 'static', 'auth.mfa_login', 'auth.google_login', 'auth.google_callback', 'auth.passkey_options', 'auth.passkey_verify', 'manage.register', 'manage.verify_registration', 'manage.accept_invite', 'manage.forgot_password', 'manage.reset_password') and not g.user:
+        if request.endpoint not in ('login', 'static', 'auth.mfa_login', 'auth.google_login', 'auth.google_callback', 'auth.passkey_options', 'auth.passkey_verify', 'manage.register', 'manage.verify_registration', 'manage.google_registration', 'manage.accept_invite', 'manage.forgot_password', 'manage.reset_password') and not g.user:
             return redirect(url_for('login'))
         inventory_writes = ('edit_component', 'adjust_stock', 'storage', 'projects', 'project', 'consume')
         if g.user and request.method == 'POST' and request.endpoint in inventory_writes:
@@ -180,7 +180,12 @@ def create_app(test_config=None):
     def conflict(error):
         return render_template('error.html', message='That identifier already exists, or the selected record is still in use. Return to the form and check your values.'), 409
 
-    from .auth import install_auth
+    from .auth import install_auth, AccountUnavailable
+    @app.errorhandler(AccountUnavailable)
+    def unavailable(error):
+        session.clear()
+        g.user = g.workspace = None
+        return render_template('suspended.html', workspace=error.workspace), 403
     auth = install_auth(app, account_db)
     app.extensions['inventory_db'] = db
     from .management import install_management

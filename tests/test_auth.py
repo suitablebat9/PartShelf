@@ -251,5 +251,5 @@ def test_email_transport_uses_tls_and_business_sender(app):
         smtp.return_value.starttls.assert_called_once()
         smtp.return_value.login.assert_called_once_with('owner@example.com','app-password')
         message=smtp.return_value.send_message.call_args.args[0]
-        assert message['From']=='no-reply@pcb-studios.com'
+        assert 'no-reply@pcb-studios.com' in message['From']
         assert message['Reply-To']=='support@pcb-studios.com'
