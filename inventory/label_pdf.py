@@ -33,7 +33,12 @@ def settings(values):
     text = values.get('text', '{name}\n{name_id}').replace('\r\n', '\n').replace('\r', '\n')
     if len(text) > 1000:
         raise ValueError('Label text must be 1,000 characters or fewer.')
-    return dict(width=numeric('width', '3.5', .5, 12), height=numeric('height', '1.5', .5, 12), size=numeric('size', '14', 6, 72), mode=mode, font=font, copies=int(copies), text=text)
+    options = dict(width=numeric('width', '3.5', .5, 12), height=numeric('height', '1.5', .5, 12), size=numeric('size', '14', 6, 72), mode=mode, font=font, copies=int(copies), text=text)
+    for side in ('top', 'bottom', 'left', 'right'):
+        options['margin_' + side] = numeric('margin_' + side, '0.08', 0, 12)
+    if options['width'] - options['margin_left'] - options['margin_right'] < .2 or options['height'] - options['margin_top'] - options['margin_bottom'] < .2:
+        raise ValueError('Margins must leave at least 0.2 inches of usable width and height.')
+    return options
 
 
 def label_text(item, template):
@@ -69,8 +74,9 @@ def render_pdf(items, options):
     out = io.BytesIO()
     canvas = Canvas(out, pagesize=(width, height), pageCompression=1)
     canvas.setTitle('Partshelf labels')
-    margin = min(6, width*.06, height*.06)
-    area_w, area_h = width-2*margin, height-2*margin
+    left, right, top, bottom = (options['margin_' + side]*72 for side in ('left', 'right', 'top', 'bottom'))
+    area_w, area_h = width-left-right, height-top-bottom
+    gap = min(6, area_w*.06, area_h*.06)
     font = FONTS[options['font']]
     for item in items:
         text = label_text(item, options['text'])
@@ -79,15 +85,15 @@ def render_pdf(items, options):
             if not (ord(char) < 256 or char in 'Ωωµμ±×÷−–—°ΔαβγπΣ∞≤≥'):
                 raise ValueError(f"The PDF fonts do not support {char!r} in {item['name']}. Edit the label text to use Latin or common electrical symbols.")
         for _ in range(options['copies']):
-            tx, ty, tw, th = margin, margin, area_w, area_h
+            tx, ty, tw, th = left, bottom, area_w, area_h
             if options['mode'] == 'qr':
                 size = min(area_h, area_w * (.42 if text else 1))
                 image = qrcode.make(item['code']).convert('RGB')
-                x = margin if text else (width-size)/2
-                canvas.drawImage(ImageReader(image), x, (height-size)/2, size, size)
+                x = left if text else left+(area_w-size)/2
+                canvas.drawImage(ImageReader(image), x, bottom+(area_h-size)/2, size, size)
                 if text:
-                    tx = margin+size+margin
-                    tw = width-margin-tx
+                    tx = left+size+gap
+                    tw = width-right-tx
             elif options['mode'] == 'barcode':
                 if not item['code'] or any(ord(c) < 32 or ord(c) > 126 for c in item['code']):
                     raise ValueError(f"{item['name']}: Code 128 needs printable ASCII. Choose QR or change its identifier.")
@@ -97,12 +103,12 @@ def render_pdf(items, options):
                 if .7*scale < .35:
                     raise ValueError(f"{item['name']}: this barcode is too dense for the label. Increase label width or use QR.")
                 canvas.saveState()
-                canvas.translate((width-code.width*scale)/2, height-margin-code_h)
+                canvas.translate(left+(area_w-code.width*scale)/2, height-top-code_h)
                 canvas.scale(scale, 1)
                 code.drawOn(canvas, 0, 0)
                 canvas.restoreState()
                 if text:
-                    th = area_h-code_h-margin
+                    th = area_h-code_h-gap
             if text:
                 size = options['size']
                 while size >= 4:

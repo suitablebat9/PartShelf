@@ -156,8 +156,8 @@ def test_inline_storage_tags_specs_and_identifier(client, app):
     assert b'Precision resistor' in client.get('/search?q=prototype').data
     assert b'Precision resistor' in client.get('/search?q=10+k%CE%A9').data
     form = client.get('/components/new').data
-    assert b'<option value="Mouser">' in form
-    assert b'<option value="Resistors">' in form
+    assert b'<option value="Mouser"' in form
+    assert b'<option value="Resistors"' in form
 
 
 def test_inline_storage_rollback_on_duplicate_identifier(client, app):
@@ -226,3 +226,50 @@ def test_static_assets_have_content_versions(client):
     for name in ('app.css', 'app.js'):
         digest = hashlib.sha256((Path(client.application.static_folder) / name).read_bytes()).hexdigest()[:12]
         assert f'/static/{name}?v={digest}' in html
+
+
+def test_component_dropdown_create_and_reuse(client, app):
+    assert part(client, category='__new__', new_category='Sensors', supplier='__new__', new_supplier='Local shop').status_code == 302
+    with sqlite3.connect(app.config['DATABASE']) as db:
+        assert db.execute('SELECT supplier FROM components').fetchone()[0] == 'Local shop'
+        assert db.execute('SELECT name FROM categories').fetchone()[0] == 'Sensors'
+    form = client.get('/components/1/edit').data
+    assert b'value="Sensors" selected' in form and b'value="Local shop" selected' in form
+    assert part(client, name='Invalid', category='__new__', new_category='').status_code == 400
+
+
+def test_specification_facets_match_any_within_all_across(client):
+    part(client, name='Small low resistor', size='0603', resistance='1 kΩ')
+    part(client, name='Large high resistor', size='0805', resistance='10 kΩ')
+    part(client, name='Small high resistor', size='0603', resistance='10 kΩ')
+    page = client.get('/search', query_string={'size_value': ['0603','0805'], 'resistance_value': '10 kΩ'})
+    assert b'Large high resistor' in page.data and b'Small high resistor' in page.data
+    assert b'Small low resistor' not in page.data
+    assert b'value="0603" checked' in page.data and b'value="0805" checked' in page.data
+    assert b'No matching components' in client.get('/search?size_value=060').data
+    # Size choices retain counts for both sizes while resistance restricts them.
+    from flask import template_rendered
+    captured = []
+    def record(sender, template, context, **extra):
+        captured.append(context)
+    with template_rendered.connected_to(record, client.application):
+        client.get('/search', query_string={'size_value': '0603', 'resistance_value': '10 kΩ'})
+    assert captured[0]['facets']['size'] == [{'value':'0603','count':1}, {'value':'0805','count':1}]
+
+
+def test_label_margins_constrain_printed_content(client):
+    from inventory.label_pdf import settings, render_pdf, preview_png
+    from PIL import Image, ImageChops
+    options = settings(dict(width='3.5',height='1.5',margin_left='.5',margin_right='.15',margin_top='.3',margin_bottom='.1',mode='qr',text='{name}'))
+    for mode in ('qr', 'barcode', 'none'):
+        options['mode'] = mode
+        png = preview_png(render_pdf([dict(name='Resistor',code='R10K')], options))
+        image = Image.open(io.BytesIO(png)).convert('RGB')
+        bbox = ImageChops.difference(image, Image.new('RGB', image.size, 'white')).getbbox()
+        scale = image.width / 3.5
+        assert bbox[0] >= int(.5*scale)-1 and bbox[1] >= int(.3*scale)-1
+        assert bbox[2] <= image.width-int(.15*scale)+1 and bbox[3] <= image.height-int(.1*scale)+1
+    with pytest.raises(ValueError, match='Margins'):
+        settings(dict(width='1',margin_left='.5',margin_right='.5'))
+    with pytest.raises(ValueError):
+        settings(dict(margin_top='-1'))

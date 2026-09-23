@@ -8,12 +8,13 @@
 <label>Preview component<select name="item_id" id="label-component">{% for i in items %}<option value="{{ i.id }}" {{ 'selected' if i.id==selected.id }}>{{ i.name }} · {{ i.name_id }}</option>{% endfor %}</select></label>
 <label>Preset<select id="label-preset"><option value="">Custom size</option><option value="3.5,1.5">3.5 × 1.5 in</option><option value="2.25,1.25">2.25 × 1.25 in</option><option value="4,2">4 × 2 in</option><option value="1,1">1 × 1 in</option></select></label>
 <div class="form-grid"><label>Width (in)<input name="width" id="label-width" type="number" min="0.5" max="12" step="0.01" value="{{ options.width }}" required></label><label>Height (in)<input name="height" id="label-height" type="number" min="0.5" max="12" step="0.01" value="{{ options.height }}" required></label></div>
+<fieldset class="label-margins"><legend>Margins (inches)</legend><div class="form-grid">{% for side in ['top','bottom','left','right'] %}<label>{{ side|capitalize }} margin<input name="margin_{{ side }}" type="number" min="0" max="12" step="0.01" value="{{ options['margin_' + side] }}" required></label>{% endfor %}</div></fieldset>
 <label>Code<select name="mode">{% for value,title in [('qr','QR code'),('barcode','Code 128 barcode'),('none','No code')] %}<option value="{{ value }}" {{ 'selected' if options.mode==value }}>{{ title }}</option>{% endfor %}</select></label>
 <label>Text template (blank for no text)<textarea name="text" id="label-text" rows="4" maxlength="1000">{{ options.text }}</textarea></label>
 <p class="hint">Use {name}, {name_id}, {code}, {stock}, {unit}, {size}, {resistance}, {capacitance}, {voltage}, {tolerance}, {supplier}, {category}, {location}, or {tags}. Each label uses its own component’s values.</p>
 <div class="form-grid"><label>Font<select name="font">{% for f in ['sans-serif','serif','monospace'] %}<option {{ 'selected' if options.font==f }}>{{ f }}</option>{% endfor %}</select></label><label>Maximum size (pt)<input name="size" type="number" min="6" max="72" step="0.5" value="{{ options.size }}" required></label></div>
 <button type="submit" formaction="/labels/pdf?preview=1&amp;render=image" formtarget="label-preview">Update preview</button>
-<p class="hint" id="preview-status" aria-live="polite">Preview and download use the same PDF layout. Update preview after changing settings.</p>
+<p class="hint" id="preview-status" aria-live="polite">Preview updates automatically as you edit. Preview and download use the same PDF layout.</p>
 </section>
 <section>
 <div class="panel"><h2>Single-label preview</h2><iframe class="pdf-preview" name="label-preview" title="Label PDF preview" src="{{ url_for('labels_pdf',item_id=selected.id,render='image',**options) }}"></iframe><p class="hint">PDF pages match your label’s physical size. Print at actual size (100%) with the matching printer stock. Test-scan a label first. Fonts support Latin text and common electrical symbols.</p></div>

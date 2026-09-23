@@ -179,6 +179,12 @@ def create_app(test_config=None):
             if request.args.get(field, '').strip():
                 clauses.append('c.' + field + ' LIKE ?')
                 params.append('%' + request.args[field].strip() + '%')
+        facet_fields = ('size', 'resistance', 'capacitance', 'voltage', 'tolerance', 'attributes')
+        facet_clauses = {}
+        for field in facet_fields:
+            selected = list(dict.fromkeys(v for v in request.args.getlist(field + '_value') if v))
+            if selected:
+                facet_clauses[field] = ('c.' + field + ' IN (' + ','.join('?' for _ in selected) + ')', selected)
         for tag in request.args.getlist('tag'):
             if tag.strip():
                 clauses.append('EXISTS (SELECT 1 FROM component_tags ct JOIN tags t ON t.id=ct.tag_id WHERE ct.component_id=c.id AND t.name=? COLLATE NOCASE)')
@@ -190,11 +196,24 @@ def create_app(test_config=None):
             clauses.append('c.stock>0')
         elif request.args.get('stock') == 'out':
             clauses.append('c.stock=0')
+        facets = {}
+        for field in facet_fields:
+            other_clauses, other_params = list(clauses), list(params)
+            for other, (clause, values) in facet_clauses.items():
+                if other != field:
+                    other_clauses.append(clause)
+                    other_params.extend(values)
+            where = ' WHERE ' + ' AND '.join(other_clauses) if other_clauses else ''
+            counts = {r['value']: r['count'] for r in rows('SELECT c.' + field + ' AS value, COUNT(*) AS count FROM components c' + where + ' GROUP BY c.' + field, other_params)}
+            facets[field] = [dict(value=r['value'], count=counts.get(r['value'], 0)) for r in rows("SELECT DISTINCT " + field + " AS value FROM components WHERE " + field + "!='' ORDER BY " + field + " COLLATE NOCASE")]
+        for clause, values in facet_clauses.values():
+            clauses.append(clause)
+            params.extend(values)
         sort = {'name': 'c.name COLLATE NOCASE', 'stock_asc': 'c.stock', 'stock_desc': 'c.stock DESC', 'price': 'CAST(c.unit_price AS REAL)', 'new': 'c.id DESC'}.get(request.args.get('sort'), 'c.name COLLATE NOCASE')
         query = 'SELECT c.*,cat.name AS category,l.name AS location FROM components c LEFT JOIN categories cat ON cat.id=c.category_id LEFT JOIN locations l ON l.id=c.location_id'
         items = rows(query + (' WHERE ' + ' AND '.join(clauses) if clauses else '') + ' ORDER BY ' + sort, params)
         all_items = rows('SELECT stock,unit_price FROM components')
-        return render_template('inventory.html', items=items, tags=rows('SELECT * FROM tags ORDER BY name'), categories=rows('SELECT * FROM categories ORDER BY name'), locations=location_options(), suppliers=rows("SELECT DISTINCT supplier FROM components WHERE supplier!='' ORDER BY supplier"), total=len(all_items), empty=sum(r['stock']==0 for r in all_items), value=sum(Decimal(str(r['stock']))*Decimal(r['unit_price']) for r in all_items))
+        return render_template('inventory.html', items=items, facets=facets, tags=rows('SELECT * FROM tags ORDER BY name'), categories=rows('SELECT * FROM categories ORDER BY name'), locations=location_options(), suppliers=rows("SELECT DISTINCT supplier FROM components WHERE supplier!='' ORDER BY supplier"), total=len(all_items), empty=sum(r['stock']==0 for r in all_items), value=sum(Decimal(str(r['stock']))*Decimal(r['unit_price']) for r in all_items))
 
     def uploaded(field, current):
         file = request.files.get(field)
@@ -247,6 +266,15 @@ def create_app(test_config=None):
                 raise ValueError('Calculated price is outside the supported range.')
             db().execute('BEGIN IMMEDIATE')
             category = f.get('category', '').strip()
+            if category == '__new__':
+                category = f.get('new_category', '').strip()
+                if not category:
+                    raise ValueError('Enter a new category name.')
+            supplier = f.get('supplier', '').strip()
+            if supplier == '__new__':
+                supplier = f.get('new_supplier', '').strip()
+                if not supplier:
+                    raise ValueError('Enter a new supplier name.')
             category_id = None
             if category:
                 db().execute('INSERT OR IGNORE INTO categories(name) VALUES(?)', (category,))
@@ -261,7 +289,7 @@ def create_app(test_config=None):
                 existing = db().execute('SELECT id FROM locations WHERE name=? COLLATE NOCASE AND parent_id IS ?', (location_name, int(parent_id) if parent_id else None)).fetchone()
                 location_id = existing['id'] if existing else db().execute('INSERT INTO locations(name,kind,parent_id) VALUES(?,?,?)', (location_name, kind, parent_id)).lastrowid
             name_id = f.get('name_id', '').strip() or name
-            values = dict(name=name, name_id=name_id, stock=float(stock), unit=f.get('unit', '').strip() or 'pcs', unit_price=str(price.quantize(Decimal('0.000001'))), description=f.get('description', '').strip(), category_id=category_id, location_id=location_id, supplier=f.get('supplier', '').strip(), supplier_url=safe_url(f.get('supplier_url', '').strip()), attributes=f.get('attributes', '').strip(), code=f.get('code', '').strip() or name_id)
+            values = dict(name=name, name_id=name_id, stock=float(stock), unit=f.get('unit', '').strip() or 'pcs', unit_price=str(price.quantize(Decimal('0.000001'))), description=f.get('description', '').strip(), category_id=category_id, location_id=location_id, supplier=supplier, supplier_url=safe_url(f.get('supplier_url', '').strip()), attributes=f.get('attributes', '').strip(), code=f.get('code', '').strip() or name_id)
             values.update(purchase_quantity=str(quantity) if quantity is not None else None, purchase_total=str(total_price) if total_price is not None else None, price_mode=mode)
             for field in ('size', 'resistance', 'capacitance', 'voltage', 'tolerance'):
                 values[field] = f.get(field, item.get(field, '')).strip()

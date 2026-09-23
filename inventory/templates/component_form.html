@@ -6,14 +6,15 @@
 <section class="panel"><h2>Component details</h2><div class="form-grid">
 <label>Name<input id="part-name" name="name" required value="{{ item.get('name','') }}"></label>
 <label>Name_ID<input id="part-id" name="name_id" value="{{ item.get('name_id','') }}" placeholder="Defaults to name"></label>
-<label>Category<input name="category" list="categories" value="{{ item.get('category','') }}" placeholder="Select or type a new category"><datalist id="categories">{% for c in categories %}<option value="{{ c.name }}">{% endfor %}</datalist></label>
+<label>Category<select name="category" id="category-select" data-custom-choice="category-new"><option value="">Uncategorized</option>{% for c in categories %}<option value="{{ c.name }}" {{ 'selected' if item.get('category')==c.name }}>{{ c.name }}</option>{% endfor %}<option value="__new__">＋ Add a new category…</option></select></label>
+<label id="category-new" hidden>New category<input name="new_category" disabled></label>
 <label>Storage area<select name="location_id"><option value="">Unassigned</option>{% for l in locations %}<option value="{{ l.id }}" {{ 'selected' if item.get('location_id')==l.id }}>{{ l.path }}</option>{% endfor %}</select></label>
 <div class="wide"><label class="check-label"><input type="checkbox" id="create-storage" name="create_storage" value="1"> Create a new storage area here</label><div id="new-storage-fields" class="form-grid" hidden>
 <label>New storage name<input name="new_location_name" placeholder="e.g. Drawer A3"></label>
 <label>Storage type<select name="new_location_kind">{% for kind in ['Bin','Drawer','Cabinet','Closet','Room','Shelf','Other'] %}<option>{{ kind }}</option>{% endfor %}</select></label>
 <label>Inside<select name="new_location_parent"><option value="">Top level</option>{% for l in locations %}<option value="{{ l.id }}">{{ l.path }}</option>{% endfor %}</select></label>
 <p class="hint">Created and assigned when you save this component.</p></div></div>
-<label class="wide">Tags<input id="part-tags" name="tags" value="{{ item.get('tags','') }}" placeholder="e.g. audio, prototype, spare"><span class="hint">Separate tags with commas. Click an existing tag to add it.</span></label>
+<div class="wide"><label for="part-tags">Tags</label><input type="hidden" id="saved-tags" name="tags" value="{{ item.get('tags','') }}"><div id="selected-tags" class="tag-suggestions" aria-label="Selected tags"></div><div class="tag-entry"><input id="part-tags" placeholder="Type a tag and press Enter" aria-describedby="tag-help"><button type="button" id="add-tag" class="secondary">Add tag</button></div><span id="tag-help" class="hint">Press Enter to add a tag, then type the next one. Click × to remove a tag.</span><span id="tag-status" class="hint" aria-live="polite"></span></div>
 <div class="wide tag-suggestions">{% for tag in tags %}<button type="button" class="tag-choice secondary" data-tag="{{ tag.name }}">＋ {{ tag.name }}</button>{% endfor %}</div>
 <label class="wide">Description<textarea name="description" rows="3">{{ item.get('description','') }}</textarea></label>
 <label class="wide">Barcode / QR identifier<input id="part-code" name="code" value="{{ item.get('code','') }}" placeholder="Defaults to Name_ID"><span class="hint">Follows Name_ID unless you enter a custom code. Code 128 uses ASCII; QR supports Unicode.</span></label>
@@ -35,7 +36,8 @@
 {% if item.get('id') and not item.get('purchase_quantity') %}<p class="hint">This older record has no saved original purchase quantity. Enter it to calculate its purchase total.</p>{% endif %}
 </section>
 <section class="panel"><h2>Supplier</h2><div class="form-grid">
-<label>Supplier name<input name="supplier" list="suppliers" value="{{ item.get('supplier','') }}" placeholder="Select or type a new supplier"><datalist id="suppliers">{% for supplier in suppliers %}<option value="{{ supplier.supplier }}">{% endfor %}</datalist></label>
+<label>Supplier name<select name="supplier" id="supplier-select" data-custom-choice="supplier-new"><option value="">No supplier</option>{% for supplier in suppliers %}<option value="{{ supplier.supplier }}" {{ 'selected' if item.get('supplier')==supplier.supplier }}>{{ supplier.supplier }}</option>{% endfor %}<option value="__new__">＋ Add a new supplier…</option></select></label>
+<label id="supplier-new" hidden>New supplier<input name="new_supplier" disabled></label>
 <label>Product link<input name="supplier_url" type="url" value="{{ item.get('supplier_url','') }}" placeholder="https://…"></label>
 </div></section>
 <section class="panel"><h2>Files & references</h2><div class="form-grid">
