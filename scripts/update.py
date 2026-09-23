@@ -3,7 +3,7 @@
 import argparse
 import datetime
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import shutil
 import subprocess
 import sys
@@ -15,6 +15,33 @@ import urllib.request
 
 def run(*args, **kwargs):
     return subprocess.run(args, check=True, **kwargs)
+
+
+def extract_release(archive, destination):
+    """Extract regular Git files safely, including on Python without tar filters."""
+    destination = Path(destination).resolve()
+    if not destination.is_dir() or any(destination.iterdir()):
+        raise ValueError('Release extraction requires an empty directory.')
+    entries = []
+    seen = set()
+    for member in archive.getmembers():
+        name = PurePosixPath(member.name)
+        if (name.is_absolute() or '..' in name.parts or not name.parts
+                or '\\' in member.name or not (member.isfile() or member.isdir())
+                or name in seen):
+            raise ValueError(f'Unsafe release archive entry: {member.name}')
+        seen.add(name)
+        entries.append((member, destination.joinpath(*name.parts)))
+    # Never restore archive ownership, special modes, links, or device files.
+    for member, target in entries:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if member.isdir():
+            target.mkdir(exist_ok=True)
+            target.chmod(0o755)
+        else:
+            with archive.extractfile(member) as source, target.open('xb') as output:
+                shutil.copyfileobj(source, output)
+            target.chmod(0o755 if member.mode & 0o111 else 0o644)
 
 
 def activate(root, release):
@@ -30,6 +57,8 @@ def main():
     parser.add_argument('--branch', default='main')
     parser.add_argument('--initial', action='store_true', help='First installation; do not restart service')
     args = parser.parse_args()
+    if sys.version_info < (3, 10):
+        sys.exit('Partshelf requires Python 3.10 or newer. Use Debian 12 or 13, or run this script with a supported Python interpreter.')
     if os.geteuid() != 0:
         sys.exit('Run with sudo or as root inside your LXC.')
     import fcntl
@@ -50,7 +79,7 @@ def main():
         archive.seek(0)
         # Archives come only from the configured, trusted repository.
         with tarfile.open(fileobj=archive) as files:
-            files.extractall(release, filter='data')
+            extract_release(files, release)
     run(sys.executable, '-m', 'venv', str(release / '.venv'))
     python = str(release / '.venv/bin/python')
     run(python, '-m', 'pip', 'install', '-r', str(release / 'requirements-dev.txt'))

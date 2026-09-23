@@ -22,7 +22,7 @@ A small, server-backed inventory system for a workshop, electronics bench, or pa
 - Login, password hashing, CSRF protection, authenticated uploads, and Nginx login rate limiting.
 - Python updater with independent release environments, preflight tests, data backup, health check and automatic rollback. Inventory files and credentials never go to GitHub.
 
-## Local development (Python 3.13 or 3.14)
+## Local development (Python 3.10–3.14)
 
 ```bash
 python3 -m venv .venv
@@ -37,7 +37,7 @@ Open http://127.0.0.1:8000 and sign in. Local data goes into `data/`, excluded f
 .venv/bin/python -m pytest -q
 ```
 
-Tests cover login and CSRF, validation, category creation, price conversion, filtering, stale edits, stock protection, project totals and atomic deductions, local attachments, generated labels, shared server state, atomic release activation, and preflight update failure. CI repeats them on Linux with Python 3.13 and 3.14.
+Tests cover login and CSRF, validation, category creation, price conversion, filtering, stale edits, stock protection, project totals and atomic deductions, local attachments, generated labels, shared server state, atomic release activation, and preflight update failure. CI repeats them on Linux with Python 3.10–3.14. The updater safely extracts regular files without requiring newer tarfile extraction-filter APIs.
 
 ## Update the LXC
 

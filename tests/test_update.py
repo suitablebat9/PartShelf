@@ -51,3 +51,51 @@ def test_preflight_failure_keeps_current_release(tmp_path, monkeypatch):
             update.main()
     assert (tmp_path/'current').resolve() == old
     assert not any('systemctl' in call for call in calls)
+
+
+def test_extract_without_extractall_filter(tmp_path, monkeypatch):
+    def unsupported(*args, **kwargs):
+        raise AssertionError('Do not depend on extractall or extraction filters')
+    monkeypatch.setattr(tarfile.TarFile, 'extractall', unsupported)
+    stream = io.BytesIO()
+    with tarfile.open(fileobj=stream, mode='w') as archive:
+        folder = tarfile.TarInfo('scripts')
+        folder.type = tarfile.DIRTYPE
+        archive.addfile(folder)
+        file = tarfile.TarInfo('scripts/example.py')
+        file.mode = 0o4755
+        file.size = 5
+        archive.addfile(file, io.BytesIO(b'hello'))
+    stream.seek(0)
+    with tarfile.open(fileobj=stream) as archive:
+        update.extract_release(archive, tmp_path)
+    assert (tmp_path/'scripts/example.py').read_text() == 'hello'
+    assert (tmp_path/'scripts/example.py').stat().st_mode & 0o7777 == 0o755
+
+
+@pytest.mark.parametrize('name,kind', [
+    ('../outside', tarfile.REGTYPE), ('/outside', tarfile.REGTYPE),
+    ('dir/../../outside', tarfile.REGTYPE), ('link', tarfile.SYMTYPE),
+    ('hardlink', tarfile.LNKTYPE), ('device', tarfile.CHRTYPE),
+    ('fifo', tarfile.FIFOTYPE), ('dir\\outside', tarfile.REGTYPE),
+])
+def test_extract_rejects_unsafe_entries_before_writing(tmp_path, name, kind):
+    stream = io.BytesIO()
+    with tarfile.open(fileobj=stream, mode='w') as archive:
+        archive.addfile(tarfile.TarInfo('valid.txt'), io.BytesIO())
+        unsafe = tarfile.TarInfo(name)
+        unsafe.type = kind
+        unsafe.linkname = '../outside'
+        archive.addfile(unsafe)
+    stream.seek(0)
+    with tarfile.open(fileobj=stream) as archive:
+        with pytest.raises(ValueError, match='Unsafe'):
+            update.extract_release(archive, tmp_path)
+    assert not list(tmp_path.iterdir())
+
+
+def test_extract_refuses_existing_directory_contents(tmp_path):
+    (tmp_path/'keep').write_text('original')
+    with pytest.raises(ValueError, match='empty directory'):
+        update.extract_release(None, tmp_path)
+    assert (tmp_path/'keep').read_text() == 'original'

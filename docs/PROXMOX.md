@@ -1,6 +1,6 @@
 # Install Partshelf in Proxmox LXC
 
-This guide targets a **fresh Debian 13 unprivileged LXC** on Proxmox VE. Commands are split between the **Proxmox host** and **inside the container**. The installer does not run on the Proxmox host. Suggested allocation: 2 cores, 1 GB RAM, 512 MB swap, 8 GB disk (increase disk for uploaded files/backups).
+This guide targets a **fresh Debian 13 unprivileged LXC** on Proxmox VE. Commands are split between the **Proxmox host** and **inside the container**. The installer does not run on the Proxmox host. Python 3.10 or newer is required; Debian 12 with Python 3.11 is also supported. Suggested allocation: 2 cores, 1 GB RAM, 512 MB swap, 8 GB disk (increase disk for uploaded files/backups).
 
 ## 1. Download a template — Proxmox host
 
@@ -152,3 +152,14 @@ curl -I http://127.0.0.1:8000/login
 - Update fails during tests/install: the old app keeps running. Fix the reported failure and retry.
 
 Deployment follows Flask's [Gunicorn](https://flask.palletsprojects.com/en/stable/deploying/gunicorn/) and [Nginx](https://flask.palletsprojects.com/en/stable/deploying/nginx/) guidance. No Proxmox server was available during development; installation scripts must be exercised on your actual host and chosen template.
+
+## Recover from an older Python archive-extraction error
+
+If initial installation stopped with `TarFile.extractall() got an unexpected keyword argument 'filter'`, run inside the container as root:
+
+```bash
+git -C /opt/partshelf/source pull --ff-only origin main
+bash /opt/partshelf/source/scripts/install.sh
+```
+
+The corrected updater handles archive extraction without that Python API. The installer refreshes its source on retry. This failure happens before release activation or inventory changes, so do not delete your data or rebuild the container. If the new version reports Python older than 3.10, use a Debian 12/13 container or a supported Python interpreter; the pinned app dependencies require at least 3.10.
