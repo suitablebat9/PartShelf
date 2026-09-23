@@ -142,3 +142,78 @@ def test_manage_user_password_minimum(app, monkeypatch, password, accepted):
         assert row is not None and check_password_hash(row[0], password)
     else:
         assert row is None
+
+
+def test_inline_storage_tags_specs_and_identifier(client, app):
+    response = part(client, name='Precision resistor', name_id='R-10K', tags='audio, prototype, AUDIO', create_storage='1', new_location_name='Drawer A', new_location_kind='Drawer', size='0603', resistance='10 kΩ', tolerance='1%')
+    assert response.status_code == 302
+    with sqlite3.connect(app.config['DATABASE']) as db:
+        assert db.execute('SELECT code,purchase_quantity,purchase_total FROM components').fetchone() == ('R-10K', '10', '2')
+        assert db.execute('SELECT name,kind FROM locations').fetchone() == ('Drawer A', 'Drawer')
+        assert db.execute('SELECT COUNT(*) FROM component_tags').fetchone()[0] == 2
+    assert b'Precision resistor' in client.get('/search?tag=audio&tag=prototype&size=0603&resistance=10').data
+    assert b'No matching components' in client.get('/search?tag=audio&tag=missing').data
+    assert b'Precision resistor' in client.get('/search?q=prototype').data
+    assert b'Precision resistor' in client.get('/search?q=10+k%CE%A9').data
+    form = client.get('/components/new').data
+    assert b'<option value="Mouser">' in form
+    assert b'<option value="Resistors">' in form
+
+
+def test_inline_storage_rollback_on_duplicate_identifier(client, app):
+    part(client, name_id='DUP')
+    response = part(client, name='Duplicate', name_id='DUP', create_storage='1', new_location_name='Must not persist', new_location_kind='Bin')
+    assert response.status_code == 409
+    with sqlite3.connect(app.config['DATABASE']) as db:
+        assert db.execute('SELECT COUNT(*) FROM locations').fetchone()[0] == 0
+
+
+def test_purchase_quantity_persists_after_stock_use(client, app):
+    assert part(client, price_mode='purchase', purchase_total='12', purchase_quantity='100', stock='100').status_code == 302
+    post(client, '/components/1/stock', quantity='75', direction='remove')
+    with sqlite3.connect(app.config['DATABASE']) as db:
+        assert db.execute('SELECT stock,purchase_quantity,purchase_total,unit_price FROM components').fetchone() == (25, '100', '12', '0.120000')
+    assert b'value="100"' in client.get('/components/1/edit').data
+    assert post(client, '/components/1/edit', name='10k resistor', stock='25', price_mode='unit', unit_price='.15', purchase_quantity='100', version='2').status_code == 302
+    with sqlite3.connect(app.config['DATABASE']) as db:
+        assert db.execute('SELECT purchase_total,unit_price FROM components').fetchone() == ('15.00', '0.150000')
+
+
+def test_new_purchase_defaults_to_starting_stock(client, app):
+    assert part(client, purchase_quantity='', stock='50', purchase_total='10').status_code == 302
+    with sqlite3.connect(app.config['DATABASE']) as db:
+        assert db.execute('SELECT purchase_quantity,unit_price FROM components').fetchone() == ('50', '0.200000')
+    assert part(client, name='Invalid', purchase_quantity='0').status_code == 400
+
+
+def test_bulk_label_pdf_and_preview(client):
+    from pypdf import PdfReader
+    part(client, name='Resistor', name_id='R10K', resistance='10 kΩ')
+    part(client, name='Capacitor', name_id='C100N', capacitance='100 nF')
+    options = dict(component_ids=['1','2'], item_id='1', width='3.5', height='1.5', mode='qr', font='sans-serif', size='14', copies='2', text='{name}\n{name_id}\n{resistance}{capacitance}')
+    result = post(client, '/labels/pdf', **options)
+    assert result.status_code == 200 and result.mimetype == 'application/pdf'
+    pdf = PdfReader(io.BytesIO(result.data))
+    assert len(pdf.pages) == 4
+    assert float(pdf.pages[0].mediabox.width) == 252
+    assert float(pdf.pages[0].mediabox.height) == 108
+    import unicodedata
+    text = unicodedata.normalize('NFKC', '\n'.join(page.extract_text() for page in pdf.pages))
+    assert 'Resistor' in text and 'Capacitor' in text and '10 kΩ' in text and '100 nF' in text
+    assert 'attachment' in result.headers['Content-Disposition']
+    preview = post(client, '/labels/pdf?preview=1', **options)
+    assert len(PdfReader(io.BytesIO(preview.data)).pages) == 1
+    assert 'inline' in preview.headers['Content-Disposition']
+    assert preview.headers['X-Frame-Options'] == 'SAMEORIGIN'
+    image_preview = post(client, '/labels/pdf?preview=1&render=image', **options)
+    assert image_preview.status_code == 200
+    assert b'data:image/png;base64,iVBOR' in image_preview.data
+    assert post(client, '/labels/pdf', mode='none').status_code == 400
+    assert post(client, '/labels/pdf', component_ids=['999']).status_code == 400
+    assert post(client, '/labels/pdf', component_ids=['1'], copies='1.5').status_code == 400
+    assert post(client, '/labels/pdf', component_ids=['1'], mode='barcode').status_code == 200
+
+
+def test_label_browser_line_endings():
+    from inventory.label_pdf import settings
+    assert settings({'text': '{name}\r\n{name_id}\rnext'})['text'] == '{name}\n{name_id}\nnext'

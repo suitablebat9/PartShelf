@@ -1,4 +1,5 @@
 import io
+import base64
 import os
 import secrets
 import sqlite3
@@ -11,6 +12,8 @@ import qrcode
 from flask import Flask, abort, flash, g, redirect, render_template, request, send_file, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
+from .migrations import migrate
+from .label_pdf import settings as label_settings, render_pdf, preview_png
 
 SCHEMA = '''
 CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, username TEXT UNIQUE NOT NULL, password TEXT NOT NULL);
@@ -54,7 +57,7 @@ def create_app(test_config=None):
     with app.app_context():
         db().execute('PRAGMA journal_mode=WAL')
         db().executescript(SCHEMA)
-        db().commit()
+        migrate(db())
         g.pop('db').close()
 
     @app.teardown_appcontext
@@ -107,8 +110,12 @@ def create_app(test_config=None):
     def headers(response):
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['X-Frame-Options'] = 'DENY'
+        if request.endpoint == 'labels_pdf':
+            response.headers['X-Frame-Options'] = 'SAMEORIGIN'
         response.headers['Referrer-Policy'] = 'same-origin'
         response.headers['Content-Security-Policy'] = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+        if request.endpoint == 'labels_pdf':
+            response.headers['Content-Security-Policy'] = response.headers['Content-Security-Policy'].replace("frame-ancestors 'none'", "frame-ancestors 'self'")
         if request.endpoint != 'static':
             response.headers['Cache-Control'] = 'no-store'
         return response
@@ -154,12 +161,20 @@ def create_app(test_config=None):
         clauses, params = [], []
         q = request.args.get('q', '').strip()
         if q:
-            clauses.append('(c.name LIKE ? OR c.name_id LIKE ? OR c.description LIKE ? OR c.code LIKE ? OR c.attributes LIKE ?)')
-            params.extend(['%' + q + '%'] * 5)
+            clauses.append('(' + ' OR '.join('c.' + field + ' LIKE ?' for field in ('name', 'name_id', 'description', 'code', 'attributes', 'size', 'resistance', 'capacitance', 'voltage', 'tolerance')) + ' OR EXISTS (SELECT 1 FROM component_tags ct JOIN tags t ON t.id=ct.tag_id WHERE ct.component_id=c.id AND t.name LIKE ?))')
+            params.extend(['%' + q + '%'] * 11)
         for field in ('category_id', 'location_id'):
             if request.args.get(field):
                 clauses.append('c.' + field + '=?')
                 params.append(request.args[field])
+        for field in ('size', 'resistance', 'capacitance', 'voltage', 'tolerance', 'attributes'):
+            if request.args.get(field, '').strip():
+                clauses.append('c.' + field + ' LIKE ?')
+                params.append('%' + request.args[field].strip() + '%')
+        for tag in request.args.getlist('tag'):
+            if tag.strip():
+                clauses.append('EXISTS (SELECT 1 FROM component_tags ct JOIN tags t ON t.id=ct.tag_id WHERE ct.component_id=c.id AND t.name=? COLLATE NOCASE)')
+                params.append(tag.strip())
         if request.args.get('supplier'):
             clauses.append('c.supplier=?')
             params.append(request.args['supplier'])
@@ -171,7 +186,7 @@ def create_app(test_config=None):
         query = 'SELECT c.*,cat.name AS category,l.name AS location FROM components c LEFT JOIN categories cat ON cat.id=c.category_id LEFT JOIN locations l ON l.id=c.location_id'
         items = rows(query + (' WHERE ' + ' AND '.join(clauses) if clauses else '') + ' ORDER BY ' + sort, params)
         all_items = rows('SELECT stock,unit_price FROM components')
-        return render_template('inventory.html', items=items, categories=rows('SELECT * FROM categories ORDER BY name'), locations=location_options(), suppliers=rows("SELECT DISTINCT supplier FROM components WHERE supplier!='' ORDER BY supplier"), total=len(all_items), empty=sum(r['stock']==0 for r in all_items), value=sum(Decimal(str(r['stock']))*Decimal(r['unit_price']) for r in all_items))
+        return render_template('inventory.html', items=items, tags=rows('SELECT * FROM tags ORDER BY name'), categories=rows('SELECT * FROM categories ORDER BY name'), locations=location_options(), suppliers=rows("SELECT DISTINCT supplier FROM components WHERE supplier!='' ORDER BY supplier"), total=len(all_items), empty=sum(r['stock']==0 for r in all_items), value=sum(Decimal(str(r['stock']))*Decimal(r['unit_price']) for r in all_items))
 
     def uploaded(field, current):
         file = request.files.get(field)
@@ -205,19 +220,43 @@ def create_app(test_config=None):
             if not name:
                 raise ValueError('Name is required.')
             stock = number(f.get('stock', '0'))
-            price = number(f.get('price', '0'))
-            if f.get('price_mode') == 'purchase':
-                quantity = number(f.get('purchase_quantity', '0'))
-                if quantity <= 0:
-                    raise ValueError('Purchase quantity must be greater than zero.')
-                price /= quantity
+            mode = f.get('price_mode', 'unit')
+            if mode not in ('unit', 'purchase'):
+                raise ValueError('Choose unit price or total purchase price.')
+            quantity_input = f.get('purchase_quantity', '').strip()
+            quantity = number(quantity_input) if quantity_input else (number(item['purchase_quantity']) if item.get('purchase_quantity') else (stock if not item_id else None))
+            if quantity is not None and quantity <= 0:
+                raise ValueError('Original purchase quantity must be greater than zero; it is separate from remaining stock.')
+            if mode == 'purchase':
+                if quantity is None:
+                    raise ValueError('Enter the original purchase quantity to calculate unit price.')
+                total_price = number(f.get('purchase_total', f.get('price', '0')) or '0')
+                price = total_price / quantity
+            else:
+                price = number(f.get('unit_price', f.get('price', '0')) or '0')
+                total_price = price * quantity if quantity is not None else None
+            if price > Decimal('1000000000') or (total_price is not None and total_price > Decimal('1000000000')):
+                raise ValueError('Calculated price is outside the supported range.')
             db().execute('BEGIN IMMEDIATE')
             category = f.get('category', '').strip()
             category_id = None
             if category:
                 db().execute('INSERT OR IGNORE INTO categories(name) VALUES(?)', (category,))
                 category_id = one('SELECT id FROM categories WHERE name=?', (category,))['id']
-            values = dict(name=name, name_id=f.get('name_id', '').strip() or name, stock=float(stock), unit=f.get('unit', '').strip() or 'pcs', unit_price=str(price.quantize(Decimal('0.000001'))), description=f.get('description', '').strip(), category_id=category_id, location_id=f.get('location_id') or None, supplier=f.get('supplier', '').strip(), supplier_url=safe_url(f.get('supplier_url', '').strip()), attributes=f.get('attributes', '').strip(), code=f.get('code', '').strip() or item.get('code') or 'PART-' + secrets.token_hex(5).upper())
+            location_id = f.get('location_id') or None
+            if f.get('create_storage'):
+                location_name = f.get('new_location_name', '').strip()
+                kind = f.get('new_location_kind', 'Bin')
+                if not location_name or kind not in ('Room', 'Closet', 'Cabinet', 'Drawer', 'Shelf', 'Bin', 'Other'):
+                    raise ValueError('Enter a storage name and select a valid type.')
+                parent_id = f.get('new_location_parent') or None
+                existing = db().execute('SELECT id FROM locations WHERE name=? COLLATE NOCASE AND parent_id IS ?', (location_name, int(parent_id) if parent_id else None)).fetchone()
+                location_id = existing['id'] if existing else db().execute('INSERT INTO locations(name,kind,parent_id) VALUES(?,?,?)', (location_name, kind, parent_id)).lastrowid
+            name_id = f.get('name_id', '').strip() or name
+            values = dict(name=name, name_id=name_id, stock=float(stock), unit=f.get('unit', '').strip() or 'pcs', unit_price=str(price.quantize(Decimal('0.000001'))), description=f.get('description', '').strip(), category_id=category_id, location_id=location_id, supplier=f.get('supplier', '').strip(), supplier_url=safe_url(f.get('supplier_url', '').strip()), attributes=f.get('attributes', '').strip(), code=f.get('code', '').strip() or name_id)
+            values.update(purchase_quantity=str(quantity) if quantity is not None else None, purchase_total=str(total_price) if total_price is not None else None, price_mode=mode)
+            for field in ('size', 'resistance', 'capacitance', 'voltage', 'tolerance'):
+                values[field] = f.get(field, item.get(field, '')).strip()
             if len(values['code'].encode('utf-8')) > 512:
                 raise ValueError('Scan identifiers must be 512 bytes or fewer for printable codes.')
             for field in ('image', 'datasheet'):
@@ -234,6 +273,15 @@ def create_app(test_config=None):
                 result = db().execute('INSERT INTO components(' + ','.join(values) + ') VALUES(' + ','.join('?' for _ in values) + ')', tuple(values.values()))
                 item_id = result.lastrowid
                 delta = float(stock)
+            if 'tags' in f:
+                tag_names = list(dict.fromkeys(t.strip().casefold() for t in f['tags'].split(',') if t.strip()))
+                if len(tag_names) > 30 or any(len(t) > 60 for t in tag_names):
+                    raise ValueError('Use up to 30 tags, each at most 60 characters.')
+                db().execute('DELETE FROM component_tags WHERE component_id=?', (item_id,))
+                for tag in tag_names:
+                    db().execute('INSERT OR IGNORE INTO tags(name) VALUES(?)', (tag,))
+                    tag_id = one('SELECT id FROM tags WHERE name=?', (tag,))['id']
+                    db().execute('INSERT INTO component_tags(component_id,tag_id) VALUES(?,?)', (item_id, tag_id))
             if delta:
                 db().execute('INSERT INTO movements(component_id,delta,reason) VALUES(?,?,?)', (item_id, delta, 'Component saved by ' + session['user']))
             db().commit()
@@ -241,11 +289,12 @@ def create_app(test_config=None):
             return redirect(url_for('component', item_id=item_id))
         if item.get('category_id'):
             item['category'] = one('SELECT name FROM categories WHERE id=?', (item['category_id'],))['name']
-        return render_template('component_form.html', item=item, categories=rows('SELECT * FROM categories ORDER BY name'), locations=location_options())
+        item['tags'] = ', '.join(r['name'] for r in rows('SELECT t.name FROM tags t JOIN component_tags ct ON ct.tag_id=t.id WHERE ct.component_id=? ORDER BY t.name', (item_id,))) if item_id else ''
+        return render_template('component_form.html', item=item, tags=rows('SELECT * FROM tags ORDER BY name'), suppliers=rows("SELECT DISTINCT supplier FROM components WHERE supplier!='' ORDER BY supplier"), categories=rows('SELECT * FROM categories ORDER BY name'), locations=location_options())
 
     @app.get('/components/<int:item_id>')
     def component(item_id):
-        return render_template('component.html', item=one('SELECT c.*,cat.name AS category,l.name AS location FROM components c LEFT JOIN categories cat ON cat.id=c.category_id LEFT JOIN locations l ON l.id=c.location_id WHERE c.id=?', (item_id,)), movements=rows('SELECT * FROM movements WHERE component_id=? ORDER BY id DESC LIMIT 50', (item_id,)))
+        return render_template('component.html', tags=rows('SELECT t.name FROM tags t JOIN component_tags ct ON ct.tag_id=t.id WHERE ct.component_id=? ORDER BY t.name', (item_id,)), item=one('SELECT c.*,cat.name AS category,l.name AS location FROM components c LEFT JOIN categories cat ON cat.id=c.category_id LEFT JOIN locations l ON l.id=c.location_id WHERE c.id=?', (item_id,)), movements=rows('SELECT * FROM movements WHERE component_id=? ORDER BY id DESC LIMIT 50', (item_id,)))
 
     @app.post('/components/<int:item_id>/stock')
     def adjust_stock(item_id):
@@ -321,16 +370,33 @@ def create_app(test_config=None):
     def labels():
         items = rows('SELECT * FROM components ORDER BY name')
         selected = next((r for r in items if str(r['id']) == request.args.get('item_id')), items[0] if items else None)
-        width = number(request.args.get('width', '3.5'), Decimal('0.5'))
-        height = number(request.args.get('height', '1.5'), Decimal('0.5'))
-        size = number(request.args.get('size', '14'), 6)
-        if width > 12 or height > 12 or size > 72:
-            raise ValueError('Labels support 0.5–12 inches and text sizes of 6–72 points.')
-        mode = request.args.get('mode', 'qr')
-        font = request.args.get('font', 'sans-serif')
-        if mode not in ('qr', 'barcode', 'none') or font not in ('sans-serif', 'serif', 'monospace'):
-            raise ValueError('Invalid label options.')
-        return render_template('labels.html', items=items, selected=selected, width=width, height=height, size=size, mode=mode, font=font, label_text=request.args.get('text', selected['name'] + ('\n' + selected['name_id'] if selected['name_id'] != selected['name'] else '') if selected else ''), copies=min(100, max(1, int(request.args.get('copies', '1')))))
+        options = label_settings(request.args)
+        return render_template('labels.html', items=items, selected=selected, options=options)
+
+    @app.route('/labels/pdf', methods=['GET', 'POST'])
+    def labels_pdf():
+        values = request.form if request.method == 'POST' else request.args
+        options = label_settings(values)
+        preview = request.args.get('preview') == '1' or request.method == 'GET'
+        if preview:
+            ids = [values.get('item_id', '')]
+            options['copies'] = 1
+        else:
+            ids = list(dict.fromkeys(values.getlist('component_ids')))
+        if not ids or not all(v.isdigit() for v in ids):
+            raise ValueError('Select at least one component for the labels.')
+        if len(ids)*options['copies'] > 1000:
+            raise ValueError('Export up to 1,000 labels per PDF.')
+        items = [dict(r) for r in rows('SELECT c.*,cat.name AS category,l.name AS location FROM components c LEFT JOIN categories cat ON cat.id=c.category_id LEFT JOIN locations l ON l.id=c.location_id WHERE c.id IN (' + ','.join('?' for _ in ids) + ') ORDER BY c.name', ids)]
+        if len(items) != len(ids):
+            raise ValueError('A selected component no longer exists. Reload the label studio.')
+        for item in items:
+            item['stock'] = f"{item['stock']:g}"
+            item['tags'] = ', '.join(r['name'] for r in rows('SELECT t.name FROM tags t JOIN component_tags ct ON ct.tag_id=t.id WHERE ct.component_id=? ORDER BY t.name', (item['id'],)))
+        pdf = render_pdf(items, options)
+        if preview and request.args.get('render') == 'image':
+            return render_template('label_preview.html', image=base64.b64encode(preview_png(pdf)).decode('ascii'))
+        return send_file(pdf, mimetype='application/pdf', as_attachment=not preview, download_name='partshelf-labels.pdf')
 
     @app.get('/codes/<int:item_id>/<mode>')
     def code_image(item_id, mode):

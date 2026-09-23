@@ -10,15 +10,15 @@ A small, server-backed inventory system for a workshop, electronics bench, or pa
 - Separate HTML templates for inventory, search, component creation/editing, component details, storage, projects, and labels.
 - Light/dark themes, responsive layout, locally served CSS and JavaScript.
 - Component name, stock, Name_ID (defaults to name), description, category, stock unit, supplier and product URL, datasheet, image, specifications, and barcode/QR identifier.
-- Type a category while adding a part to create it automatically. Category names are case insensitive; the app does not guess classifications from a part name.
-- Parametric-style search across name, description, Name_ID, specifications and scan identifiers, with category, storage, supplier and stock filters. Sort by name, stock, price, or newest. This searches your inventory; there is no Digi-Key/Mouser catalog import or live pricing integration.
-- Nested storage: room → closet/cabinet → drawer/shelf/bin. Each component has one storage assignment.
+- Add multiple tags to each component. Previously used suppliers and categories appear as suggestions; type a new category while adding a part to create it automatically. Category names are case insensitive; the app does not guess classifications from a part name.
+- Parametric-style search across name, description, Name_ID, specifications and scan identifiers, with category, storage, supplier, stock, tag, size/package, resistance, capacitance, voltage and tolerance filters. Specification filters match text, so enter units consistently (no automatic conversion between, for example, nF and µF). Sort by name, stock, price, or newest. This searches your inventory; there is no Digi-Key/Mouser catalog import or live pricing integration.
+- Nested storage: room → closet/cabinet → drawer/shelf/bin. Each component has one storage assignment. Create and assign a new storage area directly in the component form.
 - Per-project folders/pages with bills of materials, required quantity per part, shortages, full build cost and estimated missing-parts cost. “Build once” deducts the entire list atomically or makes no changes if any part is short. Planning lists do not reserve stock between projects.
 - Stock adjustments and movement history. Fractional units supported. Use one currency throughout; prices use decimal arithmetic and six decimal places per unit.
-- Enter a unit price or total purchase price and purchase quantity; calculate the other. Purchase quantity is independent of remaining stock.
+- Enter either unit price or total purchase price; the other updates automatically using the saved original purchase quantity. This quantity starts from initial stock but can be changed independently. Using stock never changes historical purchase pricing. Default numeric zeros are selected on focus so typing replaces them.
 - PDF datasheets and PNG/JPEG/WebP/GIF images upload to local server storage. External links are optional and remain links; no automatic remote downloading.
-- Printable labels: custom width/height (0.5–12 inches), common presets including 3.5 × 1.5, QR / Code 128 / no code, editable or hidden text, three font families, adjustable text size, automatic shrinking, and up to 100 copies. One label per print page; set your printer stock to the same dimensions.
-- USB/Bluetooth scanners that type into a field work in the search box and identifier field. No phone-camera scanner is included; enter/paste a decoded code or use a keyboard-mode scanner. Generated codes encode the component's stable scan identifier.
+- Printable labels: custom width/height (0.5–12 inches), common presets including 3.5 × 1.5, QR / Code 128 / no code, editable or hidden text, three font families, adjustable text size, automatic shrinking, and up to 100 copies per component. Preview one layout, select multiple components (or select all), and download one PDF with up to 1,000 labels. Use placeholders such as `{name_id}`, `{resistance}` or `{tags}` for per-component text. The preview is rendered from the same PDF. One label per print page; set your printer stock to the same dimensions.
+- USB/Bluetooth scanners that type into a field work in the search box and identifier field. No phone-camera scanner is included; enter/paste a decoded code or use a keyboard-mode scanner. New barcode/QR identifiers default to Name_ID and can be customized. Existing identifiers stay unchanged during updates so printed labels remain valid. Code 128 requires printable ASCII; use QR for Unicode identifiers.
 - Login, password hashing, CSRF protection, authenticated uploads, and Nginx login rate limiting.
 - Python updater with independent release environments, preflight tests, data backup, health check and automatic rollback. Inventory files and credentials never go to GitHub.
 
@@ -51,10 +51,14 @@ Run as root **inside the LXC**. The updater fetches `origin/main` into a new rel
 
 The updater deploys changes you have made and pushed to GitHub; it does not invent code changes. Server configuration changes to systemd/Nginx need explicit application as described in the setup guide. It intentionally does not overwrite system configuration during routine app updates.
 
+Existing installations migrate automatically on startup. Original purchase quantity is left unknown for older components because remaining stock cannot establish the original purchase amount; enter it when editing those components. Existing stock, prices, history, and identifiers are preserved.
+
 ## Files
 
 ```text
 inventory/__init__.py       Application routes, validation and database schema
+inventory/migrations.py    Additive database migrations
+inventory/label_pdf.py     Shared PDF renderer and image preview
 inventory/templates/       Separate HTML pages and shared search partial
 inventory/static/          CSS and browser behavior (served locally)
 wsgi.py                    Production/development application entry

@@ -10,3 +10,6 @@ packaging==26.3
 Pillow==12.3.0
 python-barcode==0.16.1
 qrcode==8.2
+reportlab==5.0.1
+charset-normalizer==3.5.1
+pypdfium2==5.13.0
