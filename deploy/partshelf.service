@@ -1,0 +1,23 @@
+[Unit]
+Description=Partshelf inventory
+After=network.target
+
+[Service]
+User=partshelf
+Group=partshelf
+WorkingDirectory=/opt/partshelf/current
+Environment=INVENTORY_DATA=/var/lib/partshelf
+Environment=PYTHONDONTWRITEBYTECODE=1
+EnvironmentFile=-/etc/partshelf.env
+ExecStart=/opt/partshelf/current/.venv/bin/gunicorn --workers 2 --threads 2 --bind 127.0.0.1:8000 --access-logfile - --error-logfile - wsgi:app
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/partshelf
+
+[Install]
+WantedBy=multi-user.target

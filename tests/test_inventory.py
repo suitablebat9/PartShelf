@@ -1,0 +1,106 @@
+import io
+import sqlite3
+import pytest
+from werkzeug.security import generate_password_hash
+from inventory import create_app
+
+
+@pytest.fixture
+def app(tmp_path):
+    app = create_app({'TESTING': True, 'DATA_DIR': tmp_path, 'DATABASE': str(tmp_path/'test.db')})
+    with sqlite3.connect(app.config['DATABASE']) as db:
+        db.execute('INSERT INTO users(username,password) VALUES(?,?)', ('admin', generate_password_hash('test-password-123')))
+    return app
+
+
+@pytest.fixture
+def client(app):
+    client = app.test_client()
+    with client.session_transaction() as session:
+        session['user'] = 'admin'
+        session['csrf'] = 'test'
+    return client
+
+
+def post(client, url, **data):
+    return client.post(url, data={'csrf': 'test', **data})
+
+
+def part(client, **kwargs):
+    return post(client, '/components/new', **({'name': '10k resistor', 'stock': '20', 'price': '2', 'price_mode': 'purchase', 'purchase_quantity': '10', 'category': 'Resistors', 'supplier': 'Mouser', 'attributes': '0603 1%', **kwargs}))
+
+
+def test_auth_csrf_and_login(app):
+    c = app.test_client()
+    assert c.get('/').status_code == 302
+    assert c.post('/components/new', data={'name': 'bad'}).status_code == 400
+    c.get('/login')
+    with c.session_transaction() as s:
+        token = s['csrf']
+    response = c.post('/login', data={'csrf': token, 'username': 'admin', 'password': 'test-password-123'})
+    assert response.status_code == 302
+    assert c.get('/').status_code == 200
+
+
+def test_component_prices_search_categories_and_conflicts(client, app):
+    assert part(client).status_code == 302
+    with sqlite3.connect(app.config['DATABASE']) as db:
+        assert db.execute('SELECT name_id,unit_price FROM components').fetchone() == ('10k resistor', '0.200000')
+        assert db.execute('SELECT COUNT(*) FROM categories').fetchone()[0] == 1
+    assert b'10k resistor' in client.get('/search?q=0603&supplier=Mouser&stock=in').data
+    assert b'No matching components' in client.get('/search?q=nothing').data
+    assert part(client, name='Second', category='resistors').status_code == 302
+    with sqlite3.connect(app.config['DATABASE']) as db:
+        assert db.execute('SELECT COUNT(*) FROM categories').fetchone()[0] == 1
+    assert post(client, '/components/1/stock', quantity='5', direction='add').status_code == 302
+    assert post(client, '/components/1/edit', name='Overwrite', stock='2', price='1', version='1').status_code == 409
+    assert post(client, '/components/1/stock', quantity='30', direction='remove').status_code == 400
+
+
+def test_storage_project_costs_and_atomic_consumption(client, app):
+    post(client, '/storage', name='Workshop', kind='Room')
+    post(client, '/storage', name='Cabinet', kind='Cabinet', parent_id='1')
+    assert b'Workshop / Cabinet' in client.get('/storage').data
+    part(client, location_id='2')
+    part(client, name='Regulator', stock='1', price='5', price_mode='unit')
+    post(client, '/projects', name='Sensor', description='Test build')
+    post(client, '/projects/1', component_id='1', quantity='4')
+    post(client, '/projects/1', component_id='2', quantity='2')
+    page = client.get('/projects/1')
+    assert page.status_code == 200
+    assert b'10.80' in page.data
+    assert b'5.00' in page.data
+    assert post(client, '/projects/1/consume').status_code == 400
+    with sqlite3.connect(app.config['DATABASE']) as db:
+        assert db.execute('SELECT stock FROM components WHERE id=1').fetchone()[0] == 20
+    post(client, '/components/2/stock', quantity='1', direction='add')
+    assert post(client, '/projects/1/consume').status_code == 302
+    with sqlite3.connect(app.config['DATABASE']) as db:
+        assert db.execute('SELECT stock FROM components ORDER BY id').fetchall() == [(16,), (0,)]
+    post(client, '/projects/1', component_id='2', quantity='0')
+    assert b'Regulator</a>' not in client.get('/projects/1').data
+
+
+def test_labels_uploads_and_input_validation(client):
+    part(client)
+    for mode in ['qr', 'barcode', 'none']:
+        assert client.get('/labels?mode='+mode+'&width=1.5&height=3.5&text=Custom').status_code == 200
+    assert client.get('/codes/1/qr').content_type.startswith('image/png')
+    assert client.get('/codes/1/barcode').content_type.startswith('image/svg+xml')
+    assert client.get('/labels?font=evil').status_code == 400
+    assert part(client, name='Bad', stock='NaN').status_code == 400
+    assert part(client, name='Bad', supplier_url='javascript:alert(1)').status_code == 400
+    assert part(client, name='Bad', datasheet=(io.BytesIO(b'bad'), 'file.pdf')).status_code == 400
+    assert part(client, name='Good', datasheet=(io.BytesIO(b'%PDF-1.4\n'), 'file.pdf')).status_code == 302
+    for path in ['/', '/search', '/components/1', '/components/1/edit', '/components/new', '/storage', '/projects', '/labels']:
+        assert client.get(path).status_code == 200
+
+
+def test_multi_device_shared_data(client, app):
+    part(client)
+    other = app.test_client()
+    with other.session_transaction() as s:
+        s['user'] = 'admin'
+        s['csrf'] = 'test'
+    post(other, '/components/1/stock', quantity='3', direction='remove')
+    assert b'17' in client.get('/components/1').data
