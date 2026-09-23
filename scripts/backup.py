@@ -6,6 +6,10 @@ import os
 from pathlib import Path
 import subprocess
 import tarfile
+try:
+    from .service_utils import paused_alerts
+except ImportError:
+    from service_utils import paused_alerts
 
 
 def main():
@@ -20,19 +24,20 @@ def main():
     args.destination.mkdir(parents=True, exist_ok=True, mode=0o700)
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
     path = args.destination / f'partshelf-{stamp}.tar.gz'
-    active = subprocess.run(['systemctl', 'is-active', '--quiet', 'partshelf']).returncode == 0
-    subprocess.run(['systemctl', 'stop', 'partshelf'], check=True)
-    try:
-        with path.open('xb') as stream:
-            path.chmod(0o600)
-            with tarfile.open(fileobj=stream, mode='w:gz') as archive:
-                archive.add('/var/lib/partshelf', arcname='partshelf')
-    except Exception:
-        path.unlink(missing_ok=True)
-        raise
-    finally:
-        if active:
-            subprocess.run(['systemctl', 'start', 'partshelf'], check=True)
+    with paused_alerts():
+        active = subprocess.run(['systemctl', 'is-active', '--quiet', 'partshelf']).returncode == 0
+        subprocess.run(['systemctl', 'stop', 'partshelf'], check=True)
+        try:
+            with path.open('xb') as stream:
+                path.chmod(0o600)
+                with tarfile.open(fileobj=stream, mode='w:gz') as archive:
+                    archive.add('/var/lib/partshelf', arcname='partshelf')
+        except Exception:
+            path.unlink(missing_ok=True)
+            raise
+        finally:
+            if active:
+                subprocess.run(['systemctl', 'start', 'partshelf'], check=True)
     print(path)
 
 

@@ -99,3 +99,18 @@ def test_extract_refuses_existing_directory_contents(tmp_path):
     with pytest.raises(ValueError, match='empty directory'):
         update.extract_release(None, tmp_path)
     assert (tmp_path/'keep').read_text() == 'original'
+
+
+def test_alert_timer_restarts_even_when_backup_fails(monkeypatch):
+    from scripts import service_utils
+    monkeypatch.setattr(service_utils.Path, 'exists', lambda _: True)
+    calls=[]
+    def run(args, **kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(args,0)
+    monkeypatch.setattr(service_utils.subprocess,'run',run)
+    with pytest.raises(RuntimeError):
+        with service_utils.paused_alerts():
+            raise RuntimeError('backup failed')
+    assert calls[1]==['systemctl','stop','partshelf-alerts.timer','partshelf-alerts.service']
+    assert calls[-1]==['systemctl','start','partshelf-alerts.timer']

@@ -17,6 +17,8 @@ def migrate(connection):
         connection.execute('CREATE TABLE IF NOT EXISTS tags(id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL COLLATE NOCASE)')
         connection.execute('CREATE TABLE IF NOT EXISTS component_tags(component_id INTEGER REFERENCES components(id) ON DELETE CASCADE, tag_id INTEGER REFERENCES tags(id), PRIMARY KEY(component_id,tag_id))')
         connection.execute('CREATE INDEX IF NOT EXISTS component_tags_tag ON component_tags(tag_id,component_id)')
+        from .security_schema import migrate_security
+        migrate_security(connection)
         connection.commit()
     except Exception:
         connection.rollback()

@@ -16,7 +16,11 @@ def app(tmp_path):
 @pytest.fixture
 def client(app):
     client = app.test_client()
+    import time
+    with sqlite3.connect(app.config['DATABASE']) as database:
+        database.execute('INSERT INTO auth_sessions VALUES(?,?,?,?,?)', (app.extensions['partshelf_auth']['digest']('test-session'),1,int(time.time())+3600,int(time.time()),0))
     with client.session_transaction() as session:
+        session['sid'] = 'test-session'
         session['user'] = 'admin'
         session['csrf'] = 'test'
     return client
@@ -101,6 +105,7 @@ def test_multi_device_shared_data(client, app):
     other = app.test_client()
     with other.session_transaction() as s:
         s['user'] = 'admin'
+        s['sid'] = 'test-session'
         s['csrf'] = 'test'
     post(other, '/components/1/stock', quantity='3', direction='remove')
     assert b'17' in client.get('/components/1').data

@@ -1,0 +1,11 @@
+[Unit]
+Description=Check Partshelf low stock every five minutes
+
+[Timer]
+OnCalendar=*:0/5
+Persistent=true
+RandomizedDelaySec=15
+Unit=partshelf-alerts.service
+
+[Install]
+WantedBy=timers.target

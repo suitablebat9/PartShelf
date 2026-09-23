@@ -8,6 +8,10 @@ import shutil
 import subprocess
 import sys
 import tarfile
+try:
+    from .service_utils import paused_alerts
+except ImportError:
+    from service_utils import paused_alerts
 import tempfile
 import time
 import urllib.request
@@ -94,35 +98,36 @@ def main():
     data = Path('/var/lib/partshelf')
     backup = root / 'backups' / stamp
     backup.mkdir(parents=True, mode=0o700)
-    run('systemctl', 'stop', 'partshelf')
-    copied = False
-    try:
-        shutil.copytree(data, backup / 'data')
-        copied = True
-        activate(root, release)
-        run('systemctl', 'start', 'partshelf')
-        last_error = None
-        for _ in range(15):
-            try:
-                with urllib.request.urlopen('http://127.0.0.1:8000/login', timeout=3) as response:
-                    if response.status == 200:
-                        print('Updated to', sha, '\nBackup:', backup)
-                        return
-            except (OSError, ValueError) as error:
-                last_error = error
-            time.sleep(1)
-        raise RuntimeError(f'Health check failed: {last_error}')
-    except Exception:
+    with paused_alerts():
         run('systemctl', 'stop', 'partshelf')
-        activate(root, previous)
-        if copied:
-            failed_data = backup / 'failed-data'
-            shutil.move(str(data), failed_data)
-            shutil.copytree(backup / 'data', data)
-            run('chown', '-R', 'partshelf:partshelf', str(data))
-        run('systemctl', 'start', 'partshelf')
-        print('Update failed; previous release and database restored.', file=sys.stderr)
-        raise
+        copied = False
+        try:
+            shutil.copytree(data, backup / 'data')
+            copied = True
+            activate(root, release)
+            run('systemctl', 'start', 'partshelf')
+            last_error = None
+            for _ in range(15):
+                try:
+                    with urllib.request.urlopen('http://127.0.0.1:8000/login', timeout=3) as response:
+                        if response.status == 200:
+                            print('Updated to', sha, '\nBackup:', backup)
+                            return
+                except (OSError, ValueError) as error:
+                    last_error = error
+                time.sleep(1)
+            raise RuntimeError(f'Health check failed: {last_error}')
+        except Exception:
+            run('systemctl', 'stop', 'partshelf')
+            activate(root, previous)
+            if copied:
+                failed_data = backup / 'failed-data'
+                shutil.move(str(data), failed_data)
+                shutil.copytree(backup / 'data', data)
+                run('chown', '-R', 'partshelf:partshelf', str(data))
+            run('systemctl', 'start', 'partshelf')
+            print('Update failed; previous release and database restored.', file=sys.stderr)
+            raise
 
 
 if __name__ == '__main__':

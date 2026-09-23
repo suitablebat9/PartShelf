@@ -163,3 +163,8 @@ bash /opt/partshelf/source/scripts/install.sh
 ```
 
 The corrected updater handles archive extraction without that Python API. The installer refreshes its source on retry. This failure happens before release activation or inventory changes, so do not delete your data or rebuild the container. If the new version reports Python older than 3.10, use a Debian 12/13 container or a supported Python interpreter; the pinned app dependencies require at least 3.10.
+
+
+## Accounts, email and passkeys
+
+See [Accounts and email setup](ACCOUNTS-EMAIL.md) for the public HTTPS origin, secure remembered sessions, passkey enrollment, Google OAuth, Workspace mail from your no-reply alias, and the low-stock email timer. The integration helper installs its systemd timer separately from routine app updates.

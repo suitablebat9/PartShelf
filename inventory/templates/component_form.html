@@ -22,6 +22,7 @@
 </div><p class="hint">Search or filter by any of these values. Include units consistently, such as kΩ, nF, or mm.</p></section>
 <section class="panel"><h2>Stock & purchase pricing</h2><div class="form-grid">
 <label>Current stock<input id="stock" name="stock" type="number" step="any" min="0" required value="{{ item.get('stock',0)|qty }}"></label>
+<label>Low-stock alert threshold<input name="low_stock" type="number" step="any" min="0" value="{{ item.get('low_stock') or '' }}" placeholder="Blank disables alerts for this part"></label>
 <label>Stock unit<input name="unit" list="units" value="{{ item.get('unit','pcs') }}"><datalist id="units"><option>pcs</option><option>box</option><option>set</option><option>m</option><option>kg</option></datalist></label>
 <label>Original purchase quantity<input id="purchase-quantity" name="purchase_quantity" type="number" min="0.000001" step="any" value="{{ item.get('purchase_quantity') or '' }}" placeholder="Amount that came with the purchase" {{ 'required' if not item.get('id') }}></label>
 <label>Calculate from<select name="price_mode" id="price-mode"><option value="unit" {{ 'selected' if item.get('price_mode','unit')=='unit' }}>Unit price</option><option value="purchase" {{ 'selected' if item.get('price_mode')=='purchase' }}>Total purchase price</option></select></label>

@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS project_items(project_id INTEGER REFERENCES projects(
 
 def create_app(test_config=None):
     app = Flask(__name__)
-    asset_versions = {name: hashlib.sha256((Path(app.static_folder) / name).read_bytes()).hexdigest()[:12] for name in ('app.css', 'app.js')}
+    asset_versions = {name: hashlib.sha256((Path(app.static_folder) / name).read_bytes()).hexdigest()[:12] for name in ('app.css', 'app.js', 'auth.js')}
 
     @app.url_defaults
     def version_static_assets(endpoint, values):
@@ -40,6 +40,11 @@ def create_app(test_config=None):
     app.config.update(DATA_DIR=data, DATABASE=str(data / 'inventory.db'), MAX_CONTENT_LENGTH=12*1024*1024,
                       SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax',
                       SESSION_COOKIE_SECURE=os.environ.get('COOKIE_SECURE') == '1')
+    app.config.update(PUBLIC_URL=os.environ.get('PUBLIC_URL', '').rstrip('/'),
+                      GOOGLE_CLIENT_ID=os.environ.get('GOOGLE_CLIENT_ID', ''), GOOGLE_CLIENT_SECRET=os.environ.get('GOOGLE_CLIENT_SECRET', ''),
+                      SMTP_HOST=os.environ.get('SMTP_HOST', ''), SMTP_PORT=int(os.environ.get('SMTP_PORT', '587')),
+                      SMTP_USERNAME=os.environ.get('SMTP_USERNAME', ''), SMTP_PASSWORD=os.environ.get('SMTP_PASSWORD', ''),
+                      MAIL_FROM=os.environ.get('MAIL_FROM', 'no-reply@pcb-studios.com'))
     if test_config:
         app.config.update(test_config)
     data = Path(app.config['DATA_DIR'])
@@ -109,19 +114,23 @@ def create_app(test_config=None):
     def protect():
         if request.endpoint == 'static':
             return
-        if request.method == 'POST' and not secrets.compare_digest(session.get('csrf', ''), request.form.get('csrf', '!')):
+        auth['authenticate']()
+        if request.method == 'POST' and not secrets.compare_digest(session.get('csrf', ''), request.headers.get('X-CSRF-Token', request.form.get('csrf', '!'))):
             abort(400, 'Invalid form token. Reload the page and try again.')
-        if request.endpoint not in ('login', 'static') and not session.get('user'):
+        if request.endpoint not in ('login', 'static', 'auth.mfa_login', 'auth.google_login', 'auth.google_callback', 'auth.passkey_options', 'auth.passkey_verify') and not g.user:
             return redirect(url_for('login'))
 
     @app.after_request
     def headers(response):
+        if request.method == 'POST' and response.status_code < 400 and request.endpoint in ('edit_component', 'adjust_stock', 'consume'):
+            db().execute('DELETE FROM stock_alerts WHERE component_id IN (SELECT id FROM components WHERE low_stock IS NULL OR stock>CAST(low_stock AS REAL))')
+            db().commit()
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['X-Frame-Options'] = 'DENY'
         if request.endpoint == 'labels_pdf':
             response.headers['X-Frame-Options'] = 'SAMEORIGIN'
         response.headers['Referrer-Policy'] = 'same-origin'
-        response.headers['Content-Security-Policy'] = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+        response.headers['Content-Security-Policy'] = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self' https://accounts.google.com; frame-ancestors 'none'"
         if request.endpoint == 'labels_pdf':
             response.headers['Content-Security-Policy'] = response.headers['Content-Security-Policy'].replace("frame-ancestors 'none'", "frame-ancestors 'self'")
         if request.endpoint != 'static':
@@ -130,27 +139,27 @@ def create_app(test_config=None):
 
     @app.errorhandler(ValueError)
     def invalid(error):
+        if request.is_json:
+            return {'error': str(error)}, 400
         return render_template('error.html', message=str(error)), 400
 
     @app.errorhandler(sqlite3.IntegrityError)
     def conflict(error):
         return render_template('error.html', message='That identifier already exists, or the selected record is still in use. Return to the form and check your values.'), 409
 
-    @app.route('/login', methods=['GET', 'POST'])
-    def login():
-        if request.method == 'POST':
-            user = db().execute('SELECT * FROM users WHERE username=?', (request.form['username'],)).fetchone()
-            if user and check_password_hash(user['password'], request.form['password']):
-                session.clear()
-                session['user'] = user['username']
-                return redirect(url_for('index'))
-            flash('Incorrect username or password.', 'error')
-        return render_template('login.html')
+    from .auth import install_auth
+    auth = install_auth(app, db)
+    app.add_url_rule('/login', 'login', auth['login'], methods=['GET', 'POST'])
+    app.add_url_rule('/logout', 'logout', auth['logout'], methods=['POST'])
 
-    @app.post('/logout')
-    def logout():
-        session.clear()
-        return redirect(url_for('login'))
+    @app.cli.command('send-stock-alerts')
+    def send_stock_alerts():
+        import click
+        from .mailer import deliver_stock_alerts
+        sent, failed = deliver_stock_alerts(db())
+        click.echo(f'Low-stock emails: {sent} sent, {failed} failed.')
+        if failed:
+            raise click.ClickException('Some messages could not be delivered. Check mail configuration; retries are automatic.')
 
     def location_options():
         locations = rows('SELECT * FROM locations ORDER BY name')
@@ -290,6 +299,8 @@ def create_app(test_config=None):
                 location_id = existing['id'] if existing else db().execute('INSERT INTO locations(name,kind,parent_id) VALUES(?,?,?)', (location_name, kind, parent_id)).lastrowid
             name_id = f.get('name_id', '').strip() or name
             values = dict(name=name, name_id=name_id, stock=float(stock), unit=f.get('unit', '').strip() or 'pcs', unit_price=str(price.quantize(Decimal('0.000001'))), description=f.get('description', '').strip(), category_id=category_id, location_id=location_id, supplier=supplier, supplier_url=safe_url(f.get('supplier_url', '').strip()), attributes=f.get('attributes', '').strip(), code=f.get('code', '').strip() or name_id)
+            threshold = f.get('low_stock', item.get('low_stock') or '').strip()
+            values['low_stock'] = str(number(threshold)) if threshold else None
             values.update(purchase_quantity=str(quantity) if quantity is not None else None, purchase_total=str(total_price) if total_price is not None else None, price_mode=mode)
             for field in ('size', 'resistance', 'capacitance', 'voltage', 'tolerance'):
                 values[field] = f.get(field, item.get(field, '')).strip()

@@ -1,6 +1,6 @@
 # Partshelf — self-hosted component inventory
 
-A small, server-backed inventory system for a workshop, electronics bench, or parts collection. Runs directly in a Debian 13 Proxmox LXC using Python, Flask, SQLite, Gunicorn, and Nginx. No Docker, hosted database, CDN, external fonts, or cloud account is needed to use the app. GitHub is used only to distribute source and updates.
+A small, server-backed inventory system for a workshop, electronics bench, or parts collection. Runs directly in a Debian 13 Proxmox LXC using Python, Flask, SQLite, Gunicorn, and Nginx. No Docker, hosted database, CDN, external fonts, or cloud account is needed for the core app. Optional Google sign-in and email delivery use the configured external providers. GitHub is used only to distribute source and updates.
 
 **[Install in a Proxmox LXC →](docs/PROXMOX.md)**
 
@@ -19,7 +19,12 @@ A small, server-backed inventory system for a workshop, electronics bench, or pa
 - PDF datasheets and PNG/JPEG/WebP/GIF images upload to local server storage. External links are optional and remain links; no automatic remote downloading.
 - Printable labels: custom width/height (0.5–12 inches), common presets including 3.5 × 1.5, QR / Code 128 / no code, editable or hidden text, three font families, adjustable text size, automatic shrinking, and up to 100 copies per component. Preview one layout, select multiple components (or select all), and download one PDF with up to 1,000 labels. Use placeholders such as `{name_id}`, `{resistance}` or `{tags}` for per-component text. The preview updates automatically as you edit and is rendered from the same PDF. Top, bottom, left, and right margins are individually adjustable in inches. Zero margins remove extra code padding, and barcodes fill the available width and height when no text is present. QR codes remain square; printer hardware margins still apply. One label per print page; set your printer stock to the same dimensions.
 - USB/Bluetooth scanners that type into a field work in the search box and identifier field. No phone-camera scanner is included; enter/paste a decoded code or use a keyboard-mode scanner. New barcode/QR identifiers default to Name_ID and can be customized. Existing identifiers stay unchanged during updates so printed labels remain valid. Code 128 requires printable ASCII; use QR for Unicode identifiers.
-- Login, password hashing, CSRF protection, authenticated uploads, and Nginx login rate limiting.
+- Password sign-in, optional 30-day remembered sessions, revocable device sessions, passkeys, explicitly linked Google sign-in, and optional authenticator/email two-step verification with recovery codes. Existing users must sign in once after the security update.
+- PCB Studios logo/favicon and support contact while retaining the Partshelf theme.
+- Opt-in low-stock emails from no-reply@pcb-studios.com, with per-component thresholds, a five-minute timer, and duplicate suppression per low-stock episode. Google Workspace SMTP credentials and Google OAuth credentials must be configured separately.
+- CSRF protection, authenticated uploads, server-side sign-in throttling, and Nginx login rate limiting.
+
+**[Set up Google sign-in, passkeys, 2FA, email and public HTTPS →](docs/ACCOUNTS-EMAIL.md)**
 - Python updater with independent release environments, preflight tests, data backup, health check and automatic rollback. Inventory files and credentials never go to GitHub.
 
 ## Local development (Python 3.10–3.14)
@@ -58,6 +63,8 @@ Existing installations migrate automatically on startup. Original purchase quant
 ```text
 inventory/__init__.py       Application routes, validation and database schema
 inventory/migrations.py    Additive database migrations
+inventory/auth.py          Sessions, passkeys, Google linking and two-step verification
+inventory/mailer.py        Business email and low-stock notification delivery
 inventory/label_pdf.py     Shared PDF renderer and image preview
 inventory/templates/       Separate HTML pages and shared search partial
 inventory/static/          CSS and browser behavior (served locally)

@@ -22,7 +22,11 @@ def main():
         if exists and input(f'Reset password for {username}? Type yes: ') != 'yes':
             raise SystemExit('Cancelled.')
         db.execute('INSERT INTO users(username,password) VALUES(?,?) ON CONFLICT(username) DO UPDATE SET password=excluded.password', (username, generate_password_hash(password)))
-    print('Credentials saved. Existing signed-in sessions remain valid until logout or secret-key rotation.')
+        user_id = db.execute('SELECT id FROM users WHERE username=?', (username,)).fetchone()[0]
+        for table in ('auth_sessions', 'auth_challenges'):
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
+                db.execute(f'DELETE FROM {table} WHERE user_id=?', (user_id,))
+    print('Credentials saved. Existing signed-in sessions and pending sign-ins have been revoked.')
 
 
 if __name__ == '__main__':
