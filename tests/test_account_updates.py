@@ -104,28 +104,54 @@ def google_flow(app, c, identity):
         return c.get('/auth/google/callback')
 
 
-def test_verified_google_signup_creates_only_new_workspace(app):
+def test_verified_google_signup_creates_workspace_and_session(app):
     c = app.test_client()
     response = google_flow(app, c, {'sub':'new-google','email':'new@gmail.com','email_verified':True})
-    assert response.location.endswith('/register/google')
-    assert b'new@gmail.com' in c.get('/register/google').data
-    response = form(c, '/register/google', workspace_name='Google Client', username='google-client',password='password-123',password_confirm='password-123',email='forged@example.com',role='owner',platform_admin='1')
-    assert response.status_code == 302
+    assert response.location.endswith('/')
+    assert c.get('/account').status_code == 200
     with sqlite3.connect(app.config['DATABASE']) as db:
-        assert db.execute("SELECT email,email_verified,google_sub,platform_admin,workspace_id FROM users WHERE username='google-client'").fetchone() == ('new@gmail.com',1,'new-google',0,2)
-    assert c.get('/register/google').status_code == 400
+        assert db.execute("SELECT email,email_verified,google_sub,platform_admin,workspace_id,password FROM users WHERE email='new@gmail.com'").fetchone() == ('new@gmail.com',1,'new-google',0,2,'')
+        assert db.execute('SELECT COUNT(*) FROM workspaces').fetchone()[0] == 2
+    assert google_flow(app,c,{'sub':'new-google','email':'new@gmail.com','email_verified':True}).status_code == 302
+    with sqlite3.connect(app.config['DATABASE']) as db:
+        assert db.execute('SELECT COUNT(*) FROM workspaces').fetchone()[0] == 2
+    assert form(c,'/account/google/unlink').status_code == 400
 
 
-def test_google_signup_no_email_merge_unverified_or_closed_registration(app):
+def test_google_link_verified_email_keeps_workspace_and_mfa(app):
     with sqlite3.connect(app.config['DATABASE']) as db:
-        db.execute("UPDATE users SET email='existing@gmail.com' WHERE id=1")
-    assert google_flow(app, app.test_client(), {'sub':'unknown','email':'existing@gmail.com','email_verified':True}).status_code == 400
-    assert google_flow(app, app.test_client(), {'sub':'unknown2','email':'new@gmail.com','email_verified':False}).status_code == 400
-    c = app.test_client()
-    assert google_flow(app, c, {'sub':'unknown3','email':'new@gmail.com','email_verified':True}).status_code == 302
+        db.execute("UPDATE users SET email='existing@gmail.com',email_verified=1,mfa_method='totp' WHERE id=1")
+    c=app.test_client()
+    response=google_flow(app,c,{'sub':'auto-linked','email':'EXISTING@gmail.com','email_verified':True})
+    assert response.location.endswith('/auth/verify')
+    assert c.get('/').status_code == 302
     with sqlite3.connect(app.config['DATABASE']) as db:
+        assert db.execute('SELECT google_sub,workspace_id FROM users WHERE id=1').fetchone()==('auto-linked',1)
+        assert db.execute('SELECT COUNT(*) FROM users').fetchone()[0]==1
+
+
+def test_google_link_rejects_unverified_collisions_and_non_hosted_emails(app):
+    for email,verified,sub,identity in [
+        ('existing@gmail.com',0,None,{'sub':'unknown','email':'existing@gmail.com','email_verified':True}),
+        ('existing@gmail.com',1,'different',{'sub':'unknown','email':'existing@gmail.com','email_verified':True}),
+        ('existing@example.com',1,None,{'sub':'unknown','email':'existing@example.com','email_verified':True}),
+    ]:
+        with sqlite3.connect(app.config['DATABASE']) as db:
+            db.execute('UPDATE users SET email=?,email_verified=?,google_sub=? WHERE id=1',(email,verified,sub))
+        assert google_flow(app,app.test_client(),identity).status_code==400
+    assert google_flow(app,app.test_client(),{'sub':'unknown','email':'existing@example.com','email_verified':True,'hd':'example.com'}).status_code==302
+    assert google_flow(app,app.test_client(),{'sub':'bad','email':'new@gmail.com','email_verified':False}).status_code==400
+
+
+def test_google_respects_closed_registration_and_suspension(app):
+    with sqlite3.connect(app.config['DATABASE']) as db:
+        db.execute("UPDATE users SET email='existing@gmail.com',email_verified=1 WHERE id=1")
         db.execute("UPDATE site_settings SET value='0' WHERE key='registration_enabled'")
-    assert form(c, '/register/google', workspace_name='Closed', username='new',password='password-123',password_confirm='password-123').status_code == 403
+    assert google_flow(app,app.test_client(),{'sub':'new','email':'new@gmail.com','email_verified':True}).status_code==400
+    assert google_flow(app,app.test_client(),{'sub':'existing','email':'existing@gmail.com','email_verified':True}).status_code==302
+    with sqlite3.connect(app.config['DATABASE']) as db:
+        db.execute('UPDATE workspaces SET active=0 WHERE id=1')
+    assert google_flow(app,app.test_client(),{'sub':'existing','email':'existing@gmail.com','email_verified':True}).status_code==403
 
 
 def test_sender_envelope_does_not_use_smtp_username(app):
@@ -136,3 +162,29 @@ def test_sender_envelope_does_not_use_smtp_username(app):
         kwargs = smtp.return_value.send_message.call_args.kwargs
         assert kwargs == {'from_addr':'no-reply@pcb-studios.com','to_addrs':['recipient@example.com']}
         assert 'PCB Studios' in smtp.return_value.send_message.call_args.args[0]['From']
+
+def test_google_only_account_reauth_and_wrong_identity(app):
+    c=app.test_client()
+    google_flow(app,c,{'sub':'owner-sub','email':'owner@gmail.com','email_verified':True})
+    google=app.extensions['authlib.integrations.flask_client'].create_client('google')
+    for subject,expected in (('different',400),('owner-sub',302)):
+        with patch.object(google,'authorize_redirect',return_value=app.redirect('/mock-google')):
+            assert form(c,'/account/google/reauthenticate').status_code==302
+        with patch.object(google,'authorize_access_token',return_value={'userinfo':{'sub':subject,'email':'owner@gmail.com','email_verified':True}}):
+            response=c.get('/auth/google/callback')
+            assert response.status_code==expected
+            if expected==302:
+                assert response.location.endswith('/account')
+
+
+def test_google_username_collision_and_capacity(app,monkeypatch):
+    with sqlite3.connect(app.config['DATABASE']) as db:
+        db.execute("UPDATE users SET username='new' WHERE id=1")
+    assert google_flow(app,app.test_client(),{'sub':'new','email':'new@gmail.com','email_verified':True}).status_code==302
+    with sqlite3.connect(app.config['DATABASE']) as db:
+        username=db.execute("SELECT username FROM users WHERE google_sub='new'").fetchone()[0]
+        assert username!='new' and username.startswith('new-')
+    monkeypatch.setenv('MAX_WORKSPACES','2')
+    assert google_flow(app,app.test_client(),{'sub':'other','email':'other@gmail.com','email_verified':True}).status_code==400
+    with sqlite3.connect(app.config['DATABASE']) as db:
+        assert db.execute('SELECT COUNT(*) FROM workspaces').fetchone()[0]==2

@@ -18,7 +18,7 @@ For a fresh installation, complete the installer's first-user prompt before open
 
 Registration can be paused at any time. It also stays unavailable while HTTPS or mail configuration is missing. Codes expire after 10 minutes, allow five attempts and are browser-bound. Signup and email sends are throttled. Password reset is available from the login page for verified account emails; it revokes old sessions and retains MFA.
 
-The registration page also offers **Sign up with Google**. Google must return a verified email; the new client then chooses a workspace name, username and backup password. Existing accounts are never merged by matching email: sign in with a password first and link Google. Passkeys can be enrolled after signup. Password login accepts a username or email, case-insensitively; ambiguous legacy username/email collisions fail closed.
+Both sign-in and registration support Google. A new verified Google identity automatically gets a private workspace, an available username and an owner account. The owner can rename the workspace in Team management and set a backup password through Forgot password. Matching verified Gmail/Workspace email accounts link automatically; ambiguous, unverified, non-hosted or differently linked accounts still require an explicit signed-in link. Existing MFA applies. Passkeys can be enrolled after signup. Password login accepts a username or email, case-insensitively; ambiguous legacy username/email collisions fail closed.
 
 ## Roles and invitations
 
@@ -57,3 +57,7 @@ Default limits can be adjusted in the root-only `/etc/partshelf.env`, followed b
 Inventory text submissions are limited to 64 KB; total upload request size remains 12 MB. These application limits are admission checks, not filesystem reservations. Monitor actual server storage and keep off-server backups. With many clients, also monitor SMTP quotas and notification timer duration.
 
 Application throttling uses the direct request source plus per-account/email limits. Behind the default local reverse proxy the source limit is shared, deliberately conservative. Do not trust arbitrary forwarded headers; configure a verified proxy chain before increasing public traffic. Production scale, billing/subscriptions, custom domains, workspace switching, legal terms/privacy policy and a marketing site are separate from this initial client portal.
+
+## Public demo
+
+`/demo` provides prefilled demo credentials and opens a separate, read-only sample inventory. It creates no registry users or workspaces. Visitors can search components, inspect project budgets/storage, and preview or print labels. Account, management, uploads, exports and all inventory mutations are blocked server-side; the demo database is opened read-only. Exiting restores the visitor’s prior signed-in session if present.

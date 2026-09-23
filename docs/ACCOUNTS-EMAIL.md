@@ -18,7 +18,7 @@ This sets secure HTTPS cookies and the WebAuthn origin, installs a five-minute l
 2. Create an OAuth **Web application** client. Register exactly this redirect URI:
    `https://inventory.pcb-studios.com/auth/google/callback`
 3. Enter the client ID and secret using the private setup prompts below. The app requests only `openid email`; it does not request Gmail or Drive access.
-4. Sign into Partshelf using your existing password. Open **Account & security → Link Google account** and finish Google’s prompt yourself. Only explicitly linked Google subject IDs can sign in; a matching email address alone never grants access or creates an account.
+4. Google sign-in automatically links an existing verified email account when Google hosts that address (Gmail or Workspace), then applies the account’s configured MFA. Unverified, ambiguous, non-Google-hosted, or already differently linked accounts require signing in and explicitly linking Google in Account & security. New Google identities automatically receive a private workspace while public registration is open. Google-only accounts can confirm security changes with Google and set a backup password using Forgot password; Google cannot be unlinked until a password is set. Stable Google subject IDs remain the identifier for subsequent sign-ins.
 
 Google validates the redirect URI; the OAuth library validates state, nonce and signed ID tokens. [Google’s OpenID Connect setup](https://developers.google.com/identity/openid-connect/openid-connect).
 

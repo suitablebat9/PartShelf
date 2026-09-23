@@ -71,6 +71,10 @@ def create_app(test_config=None):
     def db():
         if not has_request_context():
             return account_db()
+        if getattr(g, 'demo', False):
+            if 'inventory_db' not in g:
+                g.inventory_db = demo['connect']()
+            return g.inventory_db
         if not getattr(g, 'workspace', None):
             abort(403, 'An authenticated workspace is required.')
         if g.workspace['id'] == 1:
@@ -87,6 +91,9 @@ def create_app(test_config=None):
         for workspace in db().execute('SELECT id FROM workspaces WHERE id!=1').fetchall():
             initialize_inventory(app, workspace['id'])
         g.pop('db').close()
+
+    from .demo import install_demo
+    demo = install_demo(app, SCHEMA)
 
     @app.teardown_appcontext
     def close_db(error=None):
@@ -138,9 +145,10 @@ def create_app(test_config=None):
             if not g.workspace:
                 session.clear()
                 g.user = None
+        demo['protect']()
         if request.method == 'POST' and not secrets.compare_digest(session.get('csrf', ''), request.headers.get('X-CSRF-Token', request.form.get('csrf', '!'))):
             abort(400, 'Invalid form token. Reload the page and try again.')
-        if request.endpoint not in ('login', 'static', 'auth.mfa_login', 'auth.google_login', 'auth.google_callback', 'auth.passkey_options', 'auth.passkey_verify', 'manage.register', 'manage.verify_registration', 'manage.google_registration', 'manage.accept_invite', 'manage.forgot_password', 'manage.reset_password') and not g.user:
+        if request.endpoint not in ('login', 'static', 'demo', 'demo_exit', 'auth.mfa_login', 'auth.google_login', 'auth.google_callback', 'auth.passkey_options', 'auth.passkey_verify', 'manage.register', 'manage.verify_registration', 'manage.google_registration', 'manage.accept_invite', 'manage.forgot_password', 'manage.reset_password') and not g.user:
             return redirect(url_for('login'))
         inventory_writes = ('edit_component', 'adjust_stock', 'storage', 'projects', 'project', 'consume')
         if g.user and request.method == 'POST' and request.endpoint in inventory_writes:

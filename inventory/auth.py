@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import io
 import json
+import os
 import re
 import secrets
 import time
@@ -425,10 +426,16 @@ def install_auth(app, db):
         if not google_ready():
             raise ValueError('Google sign-in has not been configured on this server.')
         mode = 'signup' if request.form.get('mode') == 'signup' else 'login'
-        if mode == 'signup' and db().execute("SELECT value FROM site_settings WHERE key='registration_enabled'").fetchone()[0] != '1':
-            raise ValueError('Public registration is currently closed.')
         limit('google-start:'+str(request.remote_addr), 30, 900)
         challenge('google_flow',payload={'mode':mode,'remember':request.form.get('remember')=='1'})
+        return google.authorize_redirect(app.config['PUBLIC_URL']+'/auth/google/callback',prompt='select_account')
+
+    @bp.post('/account/google/reauthenticate')
+    def google_reauthenticate():
+        if not g.user or not g.user['google_sub'] or not google_ready():
+            abort(403)
+        limit('reauth:'+str(g.user['id']))
+        challenge('google_flow',g.user['id'],{'mode':'reauth','sid':digest(session['sid']),'remember':bool(g.auth_session['remember'])})
         return google.authorize_redirect(app.config['PUBLIC_URL']+'/auth/google/callback',prompt='select_account')
 
     @bp.post('/account/google/link')
@@ -449,7 +456,6 @@ def install_auth(app, db):
                 raise ValueError()
         except Exception:
             raise ValueError('Google sign-in could not be verified. Start again from the sign-in page.') from None
-        # Existing accounts must be linked explicitly; never merge by matching email.
         if pending['payload']['mode']=='link':
             if not g.user or pending['user_id']!=g.user['id'] or pending['payload']['sid']!=digest(session.get('sid','')):
                 abort(403)
@@ -458,24 +464,60 @@ def install_auth(app, db):
             db().execute('UPDATE users SET google_sub=? WHERE id=?',(identity['sub'],g.user['id']))
             revoke_others();db().commit();flash('Google account linked. You can use it to sign in next time.')
             return redirect(url_for('auth.account'))
-        user=db().execute('SELECT * FROM users WHERE google_sub=?',(identity['sub'],)).fetchone()
-        if not user and pending['payload']['mode'] == 'signup':
-            if db().execute("SELECT value FROM site_settings WHERE key='registration_enabled'").fetchone()[0] != '1':
-                raise ValueError('Public registration is currently closed.')
-            email = str(identity.get('email', '')).strip().lower()
-            if len(email) > 254 or not re.fullmatch(r'[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+', email):
-                raise ValueError('Google did not return a valid verified email.')
-            if db().execute('SELECT 1 FROM users WHERE email=? COLLATE NOCASE OR username=? COLLATE NOCASE', (email, email)).fetchone():
-                raise ValueError('This email already has an account. Sign in with your password and link Google in Account & security.')
-            challenge('google_registration', payload={'email':email, 'sub':identity['sub']})
-            return redirect(url_for('manage.google_registration'))
-        if not user:
-            raise ValueError('This Google account is not linked. Sign in with your existing account, then link Google in Account settings.')
+        if pending['payload']['mode']=='reauth':
+            if not g.user or pending['user_id']!=g.user['id'] or pending['payload']['sid']!=digest(session.get('sid','')) or identity['sub']!=g.user['google_sub']:
+                raise ValueError('Choose the Google account already linked to this Partshelf account.')
+            return start_login(g.user, pending['payload']['remember'], '/account')
+        email = str(identity.get('email', '')).strip().lower()
+        if len(email)>254 or not re.fullmatch(r'[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+', email):
+            raise ValueError('Google did not return a valid verified email.')
+        if not db().execute('SELECT 1 FROM users WHERE google_sub=? OR email=? COLLATE NOCASE',(identity['sub'],email)).fetchone():
+            limit('google-signup:'+str(request.remote_addr),10,3600)
+        # Serialize first sign-ins so concurrent callbacks cannot create duplicate workspaces.
+        db().execute('BEGIN IMMEDIATE')
+        try:
+            user=db().execute('SELECT * FROM users WHERE google_sub=?',(identity['sub'],)).fetchone()
+            if not user:
+                matches=db().execute('SELECT * FROM users WHERE email=? COLLATE NOCASE OR username=? COLLATE NOCASE',(email,email)).fetchall()
+                if matches:
+                    user=matches[0]
+                    authoritative = email.endswith('@gmail.com') or bool(identity.get('hd'))
+                    if len(matches)!=1 or not user['email_verified'] or user['email'].lower()!=email or user['google_sub'] or not authoritative:
+                        raise ValueError('Sign in with your existing account and link Google in Account & security to confirm this email belongs to you.')
+                    user_by_id(user['id'])
+                    db().execute('UPDATE users SET google_sub=? WHERE id=?',(identity['sub'],user['id']))
+                    db().execute("INSERT INTO management_audit(actor_id,workspace_id,action,detail) VALUES(?,?,'account.google_linked','Verified Google email match')",(user['id'],user['workspace_id']))
+                else:
+                    if db().execute("SELECT value FROM site_settings WHERE key='registration_enabled'").fetchone()[0]!='1':
+                        raise ValueError('Public registration is currently closed.')
+                    if db().execute('SELECT COUNT(*) FROM workspaces').fetchone()[0]>=int(os.environ.get('MAX_WORKSPACES','1000')):
+                        raise ValueError('New workspace capacity has been reached. Contact support.')
+                    from .workspaces import initialize_inventory
+                    name=email.split('@')[0][:70]
+                    username=re.sub(r'[^A-Za-z0-9_.+-]', '-', name) or 'user'
+                    username=username[:65]
+                    if len(username)<3:
+                        username='user-'+username
+                    while db().execute('SELECT 1 FROM users WHERE username=? COLLATE NOCASE OR email=? COLLATE NOCASE',(username,username)).fetchone():
+                        username=username[:65]+'-'+secrets.token_hex(4)
+                    wid=db().execute('INSERT INTO workspaces(name) VALUES(?)',(name+"’s workspace",)).lastrowid
+                    initialize_inventory(app,wid)
+                    uid=db().execute("INSERT INTO users(username,password,email,email_verified,google_sub,workspace_id,role) VALUES(?,'',?,1,?,?,'owner')",(username,email,identity['sub'],wid)).lastrowid
+                    db().execute("INSERT INTO management_audit(actor_id,workspace_id,action,detail) VALUES(?,?,'workspace.google_registered','')",(uid,wid))
+                    user=db().execute('SELECT * FROM users WHERE id=?',(uid,)).fetchone()
+                    flash('Welcome! Your workspace is ready. You can rename it in Team management.')
+            user=user_by_id(user['id'])
+            db().commit()
+        except Exception:
+            db().rollback()
+            raise
         return start_login(user,pending['payload']['remember'])
 
     @bp.post('/account/google/unlink')
     @recent
     def google_unlink():
+        if not g.user['password']:
+            raise ValueError('Set a password using Forgot password before unlinking Google.')
         db().execute('UPDATE users SET google_sub=NULL WHERE id=?',(g.user['id'],))
         revoke_others();db().commit();flash('Google account unlinked.')
         return redirect(url_for('auth.account'))

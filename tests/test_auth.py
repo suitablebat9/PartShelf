@@ -169,8 +169,10 @@ def test_passkey_registration_authentication_origin_and_replay(client,app):
     assert api(c,'/auth/passkey/verify',credential=good).status_code==400
 
 
-def test_google_does_not_allow_unlinked_accounts(client,app):
-    # The OAuth library validates signature/issuer/audience/nonce; app links only stable subjects.
+def test_google_requires_explicit_link_for_unverified_existing_email(client,app):
+    # Unverified matching emails still require an explicit signed-in link.
+    with sqlite3.connect(app.config['DATABASE']) as db:
+        db.execute("UPDATE users SET email='admin@example.com' WHERE id=1")
     from flask import session
     app.config.update(GOOGLE_CLIENT_ID='client',GOOGLE_CLIENT_SECRET='secret',PUBLIC_URL='https://inventory.test')
     google=app.extensions['authlib.integrations.flask_client'].create_client('google')
@@ -180,12 +182,12 @@ def test_google_does_not_allow_unlinked_accounts(client,app):
         assert client.get('/auth/google/callback').status_code==400
     with patch.object(google,'authorize_redirect',return_value=app.redirect('/mock-google')):
         post(client,'/account/google/link')
-    with patch.object(google,'authorize_access_token',return_value={'userinfo':{'sub':'known','email_verified':True}}):
+    with patch.object(google,'authorize_access_token',return_value={'userinfo':{'sub':'known','email_verified':True,'email':'admin@example.com'}}):
         assert client.get('/auth/google/callback').status_code==302
     c=app.test_client()
     with patch.object(google,'authorize_redirect',return_value=app.redirect('/mock-google')):
         form(c,'/auth/google',remember='1')
-    with patch.object(google,'authorize_access_token',return_value={'userinfo':{'sub':'known','email_verified':True}}):
+    with patch.object(google,'authorize_access_token',return_value={'userinfo':{'sub':'known','email_verified':True,'email':'admin@example.com'}}):
         assert c.get('/auth/google/callback').status_code==302
         assert c.get('/account').status_code==200
 

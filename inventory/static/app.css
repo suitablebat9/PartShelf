@@ -23,3 +23,12 @@ html:has(body[data-theme=dark]){color-scheme:dark;--scroll-track:#161e30;--scrol
 
 .auth-page main{margin-left:0;max-width:760px;margin-right:auto;margin-left:auto;padding:24px}.auth-header{max-width:760px;margin:auto;padding:28px 24px;display:flex;align-items:center;justify-content:space-between;gap:20px}.auth-header .brand{color:var(--text)}.auth-header .brand small{color:var(--muted)}.auth-page .login{margin:3vh auto;max-width:580px}.auth-page .account-panel{max-width:680px}.auth-page footer{justify-content:center}.management-grid .panel>form+form{margin-top:24px;padding-top:24px;border-top:1px solid var(--line)}.danger-zone{border-color:var(--danger);margin-top:24px}.danger-button{color:var(--danger)!important;background:transparent;border-color:var(--danger)}.management-row .member-controls{display:grid;gap:16px}.management-row .member-controls form{margin:0}.suspended-page{text-align:center;padding:42px 28px}.suspended-page .actions{justify-content:center;flex-wrap:wrap}
 @media(max-width:500px){.auth-header{padding:20px 16px;flex-wrap:wrap}.auth-header .brand{font-size:24px}.auth-header button{padding:8px 10px}.auth-page main{padding:16px}}
+
+/* Recognizable provider actions, kept consistent on light and dark pages. */
+.auth-icon{width:20px;height:20px;flex:0 0 20px;vertical-align:middle}
+.auth-alternatives button,.google-button{display:inline-flex;align-items:center;justify-content:center;gap:12px;min-height:44px}
+button.google-button{background:#fff;color:#1f1f1f;border:1px solid #747775;border-radius:6px}
+button.google-button:hover{background:#f2f5fa;color:#1f1f1f}
+.demo-banner{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
+.demo-banner a{font-weight:600}.login input[readonly]{opacity:.8}
+.form-fields{border:0;padding:0;margin:0;min-width:0}.form-fields:disabled{opacity:.6}
