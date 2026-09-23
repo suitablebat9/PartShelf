@@ -11,9 +11,9 @@ def main():
     username = input('Username: ').strip()
     if not username:
         raise SystemExit('Username cannot be empty.')
-    password = getpass.getpass('New password (at least 12 characters): ')
-    if len(password) < 12 or password != getpass.getpass('Repeat password: '):
-        raise SystemExit('Passwords must match and contain at least 12 characters.')
+    password = getpass.getpass('New password (at least 8 characters): ')
+    if len(password) < 8 or password != getpass.getpass('Repeat password: '):
+        raise SystemExit('Passwords must match and contain at least 8 characters.')
     data = Path(os.environ.get('INVENTORY_DATA', 'data')) / 'inventory.db'
     if not data.exists():
         raise SystemExit('Database not found. Initialize the app first and check INVENTORY_DATA.')

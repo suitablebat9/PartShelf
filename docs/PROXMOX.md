@@ -51,7 +51,7 @@ cd /root/partshelf-install
 bash scripts/install.sh
 ```
 
-The installer installs Python and Nginx, creates the unprivileged `partshelf` service user, clones source into `/opt/partshelf/source`, builds a tested release and creates your first login interactively. Choose a password of at least 12 characters. It configures this container's default Nginx site, so use a fresh container dedicated to this application.
+The installer installs Python and Nginx, creates the unprivileged `partshelf` service user, clones source into `/opt/partshelf/source`, builds a tested release and creates your first login interactively. Choose a password of at least 8 characters. It configures this container's default Nginx site, so use a fresh container dedicated to this application.
 
 Find its address with:
 

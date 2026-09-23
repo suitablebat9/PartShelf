@@ -363,8 +363,8 @@ def create_app(test_config=None):
         import click
         username = click.prompt('Username')
         password = click.prompt('Password', hide_input=True, confirmation_prompt=True)
-        if len(password) < 12:
-            raise click.ClickException('Use at least 12 characters.')
+        if len(password) < 8:
+            raise click.ClickException('Use at least 8 characters.')
         db().execute('INSERT INTO users(username,password) VALUES(?,?)', (username, generate_password_hash(password)))
         db().commit()
         click.echo('User created.')

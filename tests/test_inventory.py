@@ -104,3 +104,41 @@ def test_multi_device_shared_data(client, app):
         s['csrf'] = 'test'
     post(other, '/components/1/stock', quantity='3', direction='remove')
     assert b'17' in client.get('/components/1').data
+
+
+@pytest.mark.parametrize('password,accepted', [('1234567', False), ('12345678', True)])
+def test_create_user_password_minimum(app, password, accepted):
+    from werkzeug.security import check_password_hash
+    result = app.test_cli_runner().invoke(args=['create-user'], input=f'new-user\n{password}\n{password}\n')
+    assert (result.exit_code == 0) == accepted
+    with sqlite3.connect(app.config['DATABASE']) as db:
+        row = db.execute('SELECT password FROM users WHERE username=?', ('new-user',)).fetchone()
+    if accepted:
+        assert row is not None and check_password_hash(row[0], password)
+    else:
+        assert row is None
+        assert 'at least 8 characters' in result.output
+
+
+@pytest.mark.parametrize('password,accepted', [('1234567', False), ('12345678', True)])
+def test_manage_user_password_minimum(app, monkeypatch, password, accepted):
+    from scripts import manage_user
+    from werkzeug.security import check_password_hash
+    # manage_user uses the standard inventory.db filename.
+    database = app.config['DATA_DIR'] / 'inventory.db'
+    with sqlite3.connect(app.config['DATABASE']) as source, sqlite3.connect(database) as target:
+        source.backup(target)
+    monkeypatch.setenv('INVENTORY_DATA', str(app.config['DATA_DIR']))
+    monkeypatch.setattr('builtins.input', lambda prompt: 'new-user')
+    monkeypatch.setattr(manage_user.getpass, 'getpass', lambda prompt: password)
+    if accepted:
+        manage_user.main()
+    else:
+        with pytest.raises(SystemExit, match='at least 8 characters'):
+            manage_user.main()
+    with sqlite3.connect(database) as db:
+        row = db.execute('SELECT password FROM users WHERE username=?', ('new-user',)).fetchone()
+    if accepted:
+        assert row is not None and check_password_hash(row[0], password)
+    else:
+        assert row is None

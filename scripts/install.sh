@@ -20,7 +20,7 @@ install -m 644 /opt/partshelf/current/deploy/nginx.conf /etc/nginx/sites-availab
 ln -sfn /etc/nginx/sites-available/partshelf /etc/nginx/sites-enabled/partshelf
 if [[ -L /etc/nginx/sites-enabled/default ]]; then unlink /etc/nginx/sites-enabled/default; fi
 nginx -t
-printf '\nCreate your inventory login (password: at least 12 characters).\n'
+printf '\nCreate your inventory login (password: at least 8 characters).\n'
 cd /opt/partshelf/current
 runuser -u partshelf -- env INVENTORY_DATA=/var/lib/partshelf .venv/bin/flask --app wsgi create-user
 systemctl daemon-reload
