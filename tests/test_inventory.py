@@ -217,3 +217,12 @@ def test_bulk_label_pdf_and_preview(client):
 def test_label_browser_line_endings():
     from inventory.label_pdf import settings
     assert settings({'text': '{name}\r\n{name_id}\rnext'})['text'] == '{name}\n{name_id}\nnext'
+
+
+def test_static_assets_have_content_versions(client):
+    import hashlib
+    from pathlib import Path
+    html = client.get('/components/new').data.decode()
+    for name in ('app.css', 'app.js'):
+        digest = hashlib.sha256((Path(client.application.static_folder) / name).read_bytes()).hexdigest()[:12]
+        assert f'/static/{name}?v={digest}' in html

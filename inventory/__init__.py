@@ -1,5 +1,6 @@
 import io
 import base64
+import hashlib
 import os
 import secrets
 import sqlite3
@@ -28,6 +29,13 @@ CREATE TABLE IF NOT EXISTS project_items(project_id INTEGER REFERENCES projects(
 
 def create_app(test_config=None):
     app = Flask(__name__)
+    asset_versions = {name: hashlib.sha256((Path(app.static_folder) / name).read_bytes()).hexdigest()[:12] for name in ('app.css', 'app.js')}
+
+    @app.url_defaults
+    def version_static_assets(endpoint, values):
+        if endpoint == 'static' and values.get('filename') in asset_versions:
+            values.setdefault('v', asset_versions[values['filename']])
+
     data = Path(os.environ.get('INVENTORY_DATA', str(Path.cwd() / 'data')))
     app.config.update(DATA_DIR=data, DATABASE=str(data / 'inventory.db'), MAX_CONTENT_LENGTH=12*1024*1024,
                       SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax',
