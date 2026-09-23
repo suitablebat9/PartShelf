@@ -88,7 +88,7 @@ def install_auth(app, db):
 
     def user_by_id(user_id):
         user = db().execute('SELECT * FROM users WHERE id=?', (user_id,)).fetchone()
-        if not user:
+        if not user or not user['active'] or not db().execute('SELECT 1 FROM workspaces WHERE id=? AND active=1', (user['workspace_id'],)).fetchone():
             abort(401)
         return user
 
@@ -98,7 +98,11 @@ def install_auth(app, db):
         if token:
             auth_session = db().execute('SELECT * FROM auth_sessions WHERE token_hash=? AND expires>?', (digest(token), int(time.time()))).fetchone()
             if auth_session:
-                g.user = user_by_id(auth_session['user_id'])
+                candidate = db().execute('SELECT u.* FROM users u JOIN workspaces w ON w.id=u.workspace_id WHERE u.id=? AND u.active=1 AND w.active=1', (auth_session['user_id'],)).fetchone()
+                if not candidate:
+                    session.clear()
+                    return
+                g.user = candidate
                 g.auth_session = auth_session
                 session['user'] = g.user['username']
                 return
@@ -106,6 +110,7 @@ def install_auth(app, db):
         session.pop('sid', None)
 
     def finish_login(user, remember=False):
+        user = user_by_id(user['id'])
         if session.get('sid'):
             db().execute('DELETE FROM auth_sessions WHERE token_hash=?', (digest(session['sid']),))
         token = secrets.token_urlsafe(32)
@@ -148,6 +153,7 @@ def install_auth(app, db):
         return db().execute('DELETE FROM recovery_codes WHERE user_id=? AND code_hash=?', (user['id'], digest(code.replace('-', '').strip().lower()))).rowcount == 1
 
     def start_login(user, remember=False, destination='/'):
+        user = user_by_id(user['id'])
         if user['mfa_method']:
             payload = dict(remember=bool(remember), destination=destination)
             code = f'{secrets.randbelow(1000000):06d}' if user['mfa_method']=='email' else None
@@ -261,7 +267,9 @@ def install_auth(app, db):
             raise ValueError('Verify your email and configure server email delivery first.')
         db().execute('UPDATE users SET low_stock_email=? WHERE id=?', (int(enabled),g.user['id']))
         if not enabled:
-            db().execute('DELETE FROM stock_alerts WHERE user_id=?', (g.user['id'],))
+            inventory = app.extensions['inventory_db']()
+            inventory.execute('DELETE FROM stock_alerts WHERE user_id=?', (g.user['id'],))
+            inventory.commit()
         db().commit();flash('Notification preference saved.')
         return redirect(url_for('auth.account'))
 
@@ -443,5 +451,5 @@ def install_auth(app, db):
 
     app.config.update(PERMANENT_SESSION_LIFETIME=timedelta(days=30),SESSION_REFRESH_EACH_REQUEST=False)
     app.register_blueprint(bp)
-    app.extensions['partshelf_auth']={'authenticate':authenticate,'login':login,'logout':logout,'finish_login':finish_login,'digest':digest}
+    app.extensions['partshelf_auth']={'authenticate':authenticate,'login':login,'logout':logout,'finish_login':finish_login,'digest':digest,'limit':limit,'challenge':challenge,'consume':consume,'get_challenge':get_challenge,'recent':recent}
     return app.extensions['partshelf_auth']

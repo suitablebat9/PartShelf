@@ -1,12 +1,13 @@
 # Partshelf — self-hosted component inventory
 
-A small, server-backed inventory system for a workshop, electronics bench, or parts collection. Runs directly in a Debian 13 Proxmox LXC using Python, Flask, SQLite, Gunicorn, and Nginx. No Docker, hosted database, CDN, external fonts, or cloud account is needed for the core app. Optional Google sign-in and email delivery use the configured external providers. GitHub is used only to distribute source and updates.
+A self-hosted inventory system for workshops and client teams, with separate client workspaces and public email-verified registration. Runs directly in a Debian 13 Proxmox LXC using Python, Flask, SQLite, Gunicorn, and Nginx. No Docker, hosted database, CDN, external fonts, or cloud account is needed for the core app. Optional Google sign-in and email delivery use the configured external providers. GitHub is used only to distribute source and updates.
 
 **[Install in a Proxmox LXC →](docs/PROXMOX.md)**
 
 ## Features
 
-- Shared inventory across computers and phones; inventory/search pages refresh every 20 seconds when idle. All records are read from the server; forms are not refreshed while you edit them. Edits detect stale versions instead of overwriting newer changes.
+- Separate client inventories, owner/admin/member/viewer roles, public verified registration, staff invitations, password recovery, workspace export, and a platform management panel. [Client setup and operations](docs/CLIENT-WORKSPACES.md).
+- Shared inventory within each workspace across computers and phones; inventory/search pages refresh every 20 seconds when idle. All records are read from the server; forms are not refreshed while you edit them. Edits detect stale versions instead of overwriting newer changes.
 - Separate HTML templates for inventory, search, component creation/editing, component details, storage, projects, and labels.
 - Light/dark themes, responsive layout, locally served CSS and JavaScript.
 - Component name, stock, Name_ID (defaults to name), description, category, stock unit, supplier and product URL, datasheet, image, specifications, and barcode/QR identifier.
@@ -20,7 +21,7 @@ A small, server-backed inventory system for a workshop, electronics bench, or pa
 - Printable labels: custom width/height (0.5–12 inches), common presets including 3.5 × 1.5, QR / Code 128 / no code, editable or hidden text, three font families, adjustable text size, automatic shrinking, and up to 100 copies per component. Preview one layout, select multiple components (or select all), and download one PDF with up to 1,000 labels. Use placeholders such as `{name_id}`, `{resistance}` or `{tags}` for per-component text. The preview updates automatically as you edit and is rendered from the same PDF. Top, bottom, left, and right margins are individually adjustable in inches. Zero margins remove extra code padding, and barcodes fill the available width and height when no text is present. QR codes remain square; printer hardware margins still apply. One label per print page; set your printer stock to the same dimensions.
 - USB/Bluetooth scanners that type into a field work in the search box and identifier field. No phone-camera scanner is included; enter/paste a decoded code or use a keyboard-mode scanner. New barcode/QR identifiers default to Name_ID and can be customized. Existing identifiers stay unchanged during updates so printed labels remain valid. Code 128 requires printable ASCII; use QR for Unicode identifiers.
 - Password sign-in, optional 30-day remembered sessions, revocable device sessions, passkeys, explicitly linked Google sign-in, and optional authenticator/email two-step verification with recovery codes. Existing users must sign in once after the security update.
-- PCB Studios logo/favicon and support contact while retaining the Partshelf theme.
+- PCB Studios logo/favicon, dark blue #000028 and light blue #AFD3FF, theme-aware scrollbars, and support contact while retaining the Partshelf layout.
 - Opt-in low-stock emails from no-reply@pcb-studios.com, with per-component thresholds, a five-minute timer, and duplicate suppression per low-stock episode. Google Workspace SMTP credentials and Google OAuth credentials must be configured separately.
 - CSRF protection, authenticated uploads, server-side sign-in throttling, and Nginx login rate limiting.
 
@@ -64,7 +65,9 @@ Existing installations migrate automatically on startup. Original purchase quant
 inventory/__init__.py       Application routes, validation and database schema
 inventory/migrations.py    Additive database migrations
 inventory/auth.py          Sessions, passkeys, Google linking and two-step verification
-inventory/mailer.py        Business email and low-stock notification delivery
+inventory/mailer.py        Business email and workspace-scoped low-stock delivery
+inventory/workspaces.py    Workspace registry, migrations and isolated storage
+inventory/management.py    Signup, invitations, recovery and management panel
 inventory/label_pdf.py     Shared PDF renderer and image preview
 inventory/templates/       Separate HTML pages and shared search partial
 inventory/static/          CSS and browser behavior (served locally)
@@ -83,6 +86,6 @@ tests/                     Functional tests
 
 ## Operating boundaries
 
-Designed for a personal/small-team LAN or VPN deployment with one shared inventory and individual logins. All users have the same editing permissions. Put HTTPS in front before use outside a trusted LAN, then set `COOKIE_SECURE=1`. Internet exposure is not configured automatically. No offline editing, accounting/tax engine, per-location stock splits, currency conversion, reservations, or automatic supplier imports.
+Designed for self-hosted client workspaces with individual logins and role-based permissions. Public signup requires HTTPS, secure cookies and configured email verification. See [client operations](docs/CLIENT-WORKSPACES.md) for limits and deployment scope. No offline editing, accounting/tax engine, per-location stock splits, currency conversion, reservations, or automatic supplier imports.
 
 Use server-side backups for recovery. GitHub stores source only, not inventory data. See the setup guide for backup, restore, adding users, and troubleshooting.

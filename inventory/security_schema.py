@@ -22,3 +22,9 @@ def migrate_security(db):
         'CREATE TABLE IF NOT EXISTS stock_alerts(user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,component_id INTEGER NOT NULL REFERENCES components(id),sent INTEGER NOT NULL DEFAULT 0,last_attempt INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(user_id,component_id))',
     ):
         db.execute(sql)
+    # Recipients live in the central account registry; inventory databases are isolated.
+    if any(r[2] == 'users' for r in db.execute('PRAGMA foreign_key_list(stock_alerts)')):
+        db.execute('ALTER TABLE stock_alerts RENAME TO stock_alerts_legacy')
+        db.execute('CREATE TABLE stock_alerts(user_id INTEGER NOT NULL,component_id INTEGER NOT NULL REFERENCES components(id),sent INTEGER NOT NULL DEFAULT 0,last_attempt INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(user_id,component_id))')
+        db.execute('INSERT INTO stock_alerts SELECT * FROM stock_alerts_legacy')
+        db.execute('DROP TABLE stock_alerts_legacy')

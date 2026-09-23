@@ -10,11 +10,12 @@ from urllib.parse import urlsplit
 
 import barcode
 import qrcode
-from flask import Flask, abort, flash, g, redirect, render_template, request, send_file, session, url_for
+from flask import Flask, abort, flash, g, has_request_context, redirect, render_template, request, send_file, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 from .migrations import migrate
 from .label_pdf import settings as label_settings, render_pdf, preview_png
+from .workspaces import migrate_registry, initialize_inventory, connect_inventory, workspace_directory
 
 SCHEMA = '''
 CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, username TEXT UNIQUE NOT NULL, password TEXT NOT NULL);
@@ -60,21 +61,37 @@ def create_app(test_config=None):
             pass
     app.secret_key = key.read_text()
 
-    def db():
+    def account_db():
         if 'db' not in g:
             g.db = sqlite3.connect(app.config['DATABASE'], timeout=30)
             g.db.row_factory = sqlite3.Row
             g.db.execute('PRAGMA foreign_keys=ON')
         return g.db
 
+    def db():
+        if not has_request_context():
+            return account_db()
+        if not getattr(g, 'workspace', None):
+            abort(403, 'An authenticated workspace is required.')
+        if g.workspace['id'] == 1:
+            return account_db()
+        if 'inventory_db' not in g:
+            g.inventory_db = connect_inventory(app, g.workspace['id'])
+        return g.inventory_db
+
     with app.app_context():
         db().execute('PRAGMA journal_mode=WAL')
         db().executescript(SCHEMA)
         migrate(db())
+        migrate_registry(db())
+        for workspace in db().execute('SELECT id FROM workspaces WHERE id!=1').fetchall():
+            initialize_inventory(app, workspace['id'])
         g.pop('db').close()
 
     @app.teardown_appcontext
     def close_db(error=None):
+        if 'inventory_db' in g:
+            g.inventory_db.close()
         if 'db' in g:
             g.db.close()
 
@@ -115,14 +132,30 @@ def create_app(test_config=None):
         if request.endpoint == 'static':
             return
         auth['authenticate']()
+        g.workspace = None
+        if g.user:
+            g.workspace = account_db().execute('SELECT * FROM workspaces WHERE id=? AND active=1', (g.user['workspace_id'],)).fetchone()
+            if not g.workspace:
+                session.clear()
+                g.user = None
         if request.method == 'POST' and not secrets.compare_digest(session.get('csrf', ''), request.headers.get('X-CSRF-Token', request.form.get('csrf', '!'))):
             abort(400, 'Invalid form token. Reload the page and try again.')
-        if request.endpoint not in ('login', 'static', 'auth.mfa_login', 'auth.google_login', 'auth.google_callback', 'auth.passkey_options', 'auth.passkey_verify') and not g.user:
+        if request.endpoint not in ('login', 'static', 'auth.mfa_login', 'auth.google_login', 'auth.google_callback', 'auth.passkey_options', 'auth.passkey_verify', 'manage.register', 'manage.verify_registration', 'manage.accept_invite', 'manage.forgot_password', 'manage.reset_password') and not g.user:
             return redirect(url_for('login'))
+        inventory_writes = ('edit_component', 'adjust_stock', 'storage', 'projects', 'project', 'consume')
+        if g.user and request.method == 'POST' and request.endpoint in inventory_writes:
+            if sum(len(value.encode('utf-8')) for _, value in request.form.items(multi=True)) > 65536:
+                raise ValueError('Keep the text fields in one submission under 64 KB.')
+            path = Path(app.config['DATABASE']) if g.workspace['id'] == 1 else workspace_directory(app, g.workspace['id'])/'inventory.db'
+            size = sum(candidate.stat().st_size for candidate in (path, Path(str(path)+'-wal')) if candidate.exists())
+            if request.endpoint in ('edit_component', 'storage', 'projects', 'project') and size > int(os.environ.get('WORKSPACE_DATABASE_LIMIT_MB', '256')) * 1024 * 1024:
+                raise ValueError('Your workspace database capacity has been reached. Contact support.')
+        if g.user and g.user['role'] == 'viewer' and (request.method == 'POST' and request.endpoint in inventory_writes or request.method == 'GET' and request.endpoint == 'edit_component'):
+            abort(403, 'Your workspace role is read-only.')
 
     @app.after_request
     def headers(response):
-        if request.method == 'POST' and response.status_code < 400 and request.endpoint in ('edit_component', 'adjust_stock', 'consume'):
+        if getattr(g, 'user', None) and getattr(g, 'workspace', None) and request.method == 'POST' and response.status_code < 400 and request.endpoint in ('edit_component', 'adjust_stock', 'consume'):
             db().execute('DELETE FROM stock_alerts WHERE component_id IN (SELECT id FROM components WHERE low_stock IS NULL OR stock>CAST(low_stock AS REAL))')
             db().commit()
         response.headers['X-Content-Type-Options'] = 'nosniff'
@@ -148,7 +181,10 @@ def create_app(test_config=None):
         return render_template('error.html', message='That identifier already exists, or the selected record is still in use. Return to the form and check your values.'), 409
 
     from .auth import install_auth
-    auth = install_auth(app, db)
+    auth = install_auth(app, account_db)
+    app.extensions['inventory_db'] = db
+    from .management import install_management
+    install_management(app, account_db, auth)
     app.add_url_rule('/login', 'login', auth['login'], methods=['GET', 'POST'])
     app.add_url_rule('/logout', 'logout', auth['logout'], methods=['POST'])
 
@@ -156,7 +192,16 @@ def create_app(test_config=None):
     def send_stock_alerts():
         import click
         from .mailer import deliver_stock_alerts
-        sent, failed = deliver_stock_alerts(db())
+        sent = failed = 0
+        for workspace in account_db().execute('SELECT id FROM workspaces WHERE active=1').fetchall():
+            recipients = account_db().execute('SELECT id,email FROM users WHERE workspace_id=? AND active=1 AND low_stock_email=1 AND email_verified=1', (workspace['id'],)).fetchall()
+            inventory = connect_inventory(app, workspace['id'])
+            try:
+                delivered, errors = deliver_stock_alerts(inventory, recipients)
+                sent += delivered
+                failed += errors
+            finally:
+                inventory.close()
         click.echo(f'Low-stock emails: {sent} sent, {failed} failed.')
         if failed:
             raise click.ClickException('Some messages could not be delivered. Check mail configuration; retries are automatic.')
@@ -243,7 +288,10 @@ def create_app(test_config=None):
         elif ext != '.pdf' or not raw.startswith(b'%PDF-'):
             raise ValueError('Datasheet uploads must be PDF files.')
         name = secrets.token_hex(16) + ext
-        (data / 'uploads' / name).write_bytes(raw)
+        upload_root = workspace_directory(app, g.workspace['id']) / 'uploads'
+        if sum(p.stat().st_size for p in upload_root.iterdir() if p.is_file()) + len(raw) > int(os.environ.get('WORKSPACE_UPLOAD_LIMIT_MB', '1024')) * 1024 * 1024:
+            raise ValueError('Your workspace upload storage limit has been reached. Contact support.')
+        (upload_root / name).write_bytes(raw)
         return '/uploads/' + name
 
     @app.route('/components/new', methods=['GET', 'POST'])
@@ -252,6 +300,8 @@ def create_app(test_config=None):
         item = dict(one('SELECT * FROM components WHERE id=?', (item_id,))) if item_id else {}
         if request.method == 'POST':
             f = request.form
+            if item_id is None and db().execute('SELECT COUNT(*) FROM components').fetchone()[0] >= int(os.environ.get('MAX_WORKSPACE_COMPONENTS', '100000')):
+                raise ValueError('Your workspace component limit has been reached. Contact support.')
             name = f.get('name', '').strip()
             if not name:
                 raise ValueError('Name is required.')
@@ -466,10 +516,38 @@ def create_app(test_config=None):
     def upload(name):
         if name != secure_filename(name):
             abort(404)
-        path = data / 'uploads' / name
+        path = workspace_directory(app, g.workspace['id']) / 'uploads' / name
         if not path.is_file():
             abort(404)
         return send_file(path, as_attachment=path.suffix == '.pdf')
+
+    @app.get('/workspace/export')
+    @auth['recent']
+    def export_workspace():
+        if g.user['role'] not in ('owner', 'admin'):
+            abort(403)
+        import json
+        import tempfile
+        import zipfile
+        output = tempfile.TemporaryFile()
+        try:
+            # Export only inventory tables, never account credentials or session data.
+            db().execute('BEGIN')
+            tables = ('components', 'categories', 'locations', 'projects', 'project_items', 'movements', 'tags', 'component_tags')
+            payload = {'format': 'partshelf-inventory-v1', 'workspace': g.workspace['name'], 'tables': {table: [dict(row) for row in rows('SELECT * FROM '+table)] for table in tables}}
+            db().commit()
+            with zipfile.ZipFile(output, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr('inventory.json', json.dumps(payload, indent=2))
+                for file in (workspace_directory(app, g.workspace['id'])/'uploads').iterdir():
+                    if file.is_file() and not file.is_symlink():
+                        archive.write(file, 'uploads/'+file.name)
+            output.seek(0)
+            response = send_file(output, mimetype='application/zip', as_attachment=True, download_name='partshelf-workspace.zip')
+            response.call_on_close(output.close)
+            return response
+        except Exception:
+            output.close()
+            raise
 
     @app.cli.command('create-user')
     def create_user():
@@ -478,7 +556,8 @@ def create_app(test_config=None):
         password = click.prompt('Password', hide_input=True, confirmation_prompt=True)
         if len(password) < 8:
             raise click.ClickException('Use at least 8 characters.')
-        db().execute('INSERT INTO users(username,password) VALUES(?,?)', (username, generate_password_hash(password)))
+        first = db().execute('SELECT COUNT(*) FROM users').fetchone()[0] == 0
+        db().execute('INSERT INTO users(username,password,role,platform_admin) VALUES(?,?,?,?)', (username, generate_password_hash(password), 'owner' if first else 'member', int(first)))
         db().commit()
         click.echo('User created.')
 

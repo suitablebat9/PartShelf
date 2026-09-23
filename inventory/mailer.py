@@ -35,12 +35,13 @@ def send_email(recipient, subject, text):
         raise ValueError('Email could not be sent. Check the server’s Google Workspace mail configuration.') from None
 
 
-def deliver_stock_alerts(db):
+def deliver_stock_alerts(db, users=None):
     """One alert per low-stock episode and recipient; retries after 15 minutes."""
     sent = failed = 0
     if not mail_ready():
         return sent, failed
-    users = db.execute('SELECT id,email FROM users WHERE low_stock_email=1 AND email_verified=1').fetchall()
+    if users is None:
+        users = db.execute('SELECT id,email FROM users WHERE low_stock_email=1 AND email_verified=1').fetchall()
     for user in users:
         items = db.execute('SELECT id FROM components').fetchall()
         for item in items:
