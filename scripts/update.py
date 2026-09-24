@@ -95,7 +95,7 @@ def main():
         return
     if previous is None:
         sys.exit('No current release. Use the installer for first setup.')
-    data = Path('/var/lib/partshelf')
+    data = Path('/var/lib/partshelf').resolve(strict=True)
     backup = root / 'backups' / stamp
     backup.mkdir(parents=True, mode=0o700)
     with paused_alerts():

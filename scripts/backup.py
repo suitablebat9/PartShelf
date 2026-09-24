@@ -31,7 +31,7 @@ def main():
             with path.open('xb') as stream:
                 path.chmod(0o600)
                 with tarfile.open(fileobj=stream, mode='w:gz') as archive:
-                    archive.add('/var/lib/partshelf', arcname='partshelf')
+                    archive.add(Path('/var/lib/partshelf').resolve(strict=True), arcname='partshelf')
         except Exception:
             path.unlink(missing_ok=True)
             raise

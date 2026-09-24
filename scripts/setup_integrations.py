@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 
 
 def update_env(path, values):
+    path = path.resolve()  # Keep a relocated configuration symlink intact.
     existing=path.read_text().splitlines() if path.exists() else []
     lines=[line for line in existing if line.split('=',1)[0] not in values]
     for key,value in values.items():
