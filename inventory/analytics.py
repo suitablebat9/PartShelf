@@ -21,7 +21,7 @@ def install_attribution(app):
 
     @app.before_request
     def capture_source():
-        if request.method!='GET' or request.path not in ('/','/login','/register','/demo') or session.get('signup_attribution'):
+        if request.method!='GET' or request.path not in ('/','/welcome','/about','/support','/feedback','/login','/register','/demo') or session.get('signup_attribution'):
             return
         try:
             host=urlsplit(request.referrer or '').hostname or ''

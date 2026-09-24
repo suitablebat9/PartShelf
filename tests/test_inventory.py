@@ -82,7 +82,9 @@ def test_storage_project_costs_and_atomic_consumption(client, app):
     with sqlite3.connect(app.config['DATABASE']) as db:
         assert db.execute('SELECT stock FROM components ORDER BY id').fetchall() == [(16,), (0,)]
     post(client, '/projects/1', component_id='2', quantity='0')
-    assert b'Regulator</a>' not in client.get('/projects/1').data
+    with sqlite3.connect(app.config['DATABASE']) as db:
+        assert db.execute('SELECT 1 FROM project_items WHERE project_id=1 AND component_id=2').fetchone() is None
+    assert client.get('/projects/1').status_code == 200
 
 
 def test_labels_uploads_and_input_validation(client):

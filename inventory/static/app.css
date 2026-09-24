@@ -38,3 +38,9 @@ button.google-button:hover{background:#f2f5fa;color:#1f1f1f}
 .date-stat{font-size:18px!important}.signup-trend>div{display:flex;gap:16px;align-items:center;margin:12px 0}.signup-trend meter{flex:1;max-width:600px;height:20px}
 
 .sidebar{overflow-y:auto}.sidebar nav{flex-shrink:0}.sidebar-bottom{padding-top:24px}
+/* Public community pages and project planning. */
+.public-page main{max-width:1120px;width:100%;margin:0 auto;padding:36px 28px}.public-page .auth-header{max-width:1120px;margin:auto}.public-hero{padding:42px 0 52px}.public-hero h1{font-size:clamp(2.2rem,5vw,4.1rem);line-height:1.12;max-width:850px}.lead{font-size:1.2rem;line-height:1.7;max-width:760px}.public-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}.public-copy{max-width:850px;margin:24px auto}.public-copy h2{margin-top:30px}.public-copy p{line-height:1.8}.prose{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.85}.footer-links{display:flex;gap:18px;flex-wrap:wrap}footer{flex-wrap:wrap}.project-picker-row{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:18px 0;border-bottom:1px solid var(--line)}.project-picker-row .inline-form{margin:0}.project-picker-row input{max-width:120px}#filter-status:empty{display:none}details>summary{cursor:pointer}textarea[name="terms_text"],textarea[name="privacy_text"]{width:100%}@media(max-width:760px){.public-grid{grid-template-columns:1fr}.public-page main{padding:24px 16px}.project-picker-row{align-items:flex-start;flex-direction:column}}
+
+.footer-links{margin:0;width:100%;justify-content:inherit}.footer-links a{color:var(--muted);padding:0}.footer-links a:hover{color:var(--text);background:none}.sidebar{overflow-y:auto}.sidebar nav{margin-top:24px;gap:4px}.sidebar nav a{padding:9px 12px}.sidebar-bottom{padding-top:24px}
+
+.public-hero .actions{justify-content:flex-start;margin-top:24px}

@@ -32,7 +32,7 @@
 </div><p class="hint">Enter either price; the other is calculated from the original purchase quantity. For a new component, purchase quantity follows initial stock until you change it. Using stock later will not change your purchase prices.</p>
 {% if item.get('id') and not item.get('purchase_quantity') %}<p class="hint">This older record has no saved original purchase quantity. Enter it to calculate its purchase total.</p>{% endif %}
 </section>
-<section class="panel"><h2>Supplier</h2><div class="form-grid">
+<section class="panel"><h2>Supplier</h2><label>Purchase pack size (units per pack)<input name="purchase_pack" type="number" min="0.000001" step="any" value="{{ item.get('purchase_pack','1') }}" required></label><p class="hint">For a bag of 100 resistors, enter 100. Projects round shortages up to whole packs at the current unit price.</p><div class="form-grid">
 <label>Supplier name<select name="supplier" id="supplier-select" data-custom-choice="supplier-new"><option value="">No supplier</option>{% for supplier in suppliers %}<option value="{{ supplier.supplier }}" {{ 'selected' if item.get('supplier')==supplier.supplier }}>{{ supplier.supplier }}</option>{% endfor %}<option value="__new__">＋ Add a new supplier…</option></select></label>
 <label id="supplier-new" hidden>New supplier<input name="new_supplier" disabled></label>
 <label>Product link<input name="supplier_url" type="url" value="{{ item.get('supplier_url','') }}" placeholder="https://…"></label>

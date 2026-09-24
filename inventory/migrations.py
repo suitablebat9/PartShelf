@@ -5,7 +5,7 @@ def migrate(connection):
     try:
         columns = {r[1] for r in connection.execute('PRAGMA table_info(components)')}
         additions = {
-            'purchase_quantity': 'TEXT', 'purchase_total': 'TEXT',
+            'purchase_pack': "TEXT NOT NULL DEFAULT '1'", 'purchase_quantity': 'TEXT', 'purchase_total': 'TEXT',
             'price_mode': "TEXT NOT NULL DEFAULT 'unit'",
             'size': "TEXT NOT NULL DEFAULT ''", 'resistance': "TEXT NOT NULL DEFAULT ''",
             'capacitance': "TEXT NOT NULL DEFAULT ''", 'voltage': "TEXT NOT NULL DEFAULT ''",

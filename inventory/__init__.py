@@ -4,7 +4,7 @@ import hashlib
 import os
 import secrets
 import sqlite3
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_CEILING
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -15,6 +15,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 from .migrations import migrate
 from .label_pdf import settings as label_settings, render_pdf, preview_png
+from .community import PUBLIC_ENDPOINTS
 from .workspaces import migrate_registry, initialize_inventory, connect_inventory, workspace_directory
 
 SCHEMA = '''
@@ -152,9 +153,9 @@ def create_app(test_config=None):
         demo['protect']()
         if request.method == 'POST' and not secrets.compare_digest(session.get('csrf', ''), request.headers.get('X-CSRF-Token', request.form.get('csrf', '!'))):
             abort(400, 'Invalid form token. Reload the page and try again.')
-        if request.endpoint not in ('login', 'static', 'demo', 'demo_exit', 'auth.mfa_login', 'auth.google_login', 'auth.google_callback', 'auth.passkey_options', 'auth.passkey_verify', 'manage.register', 'manage.verify_registration', 'manage.google_registration', 'manage.accept_invite', 'manage.forgot_password', 'manage.reset_password') and not g.user:
-            return redirect(url_for('login'))
-        inventory_writes = ('edit_component', 'adjust_stock', 'storage', 'projects', 'project', 'consume')
+        if request.endpoint not in PUBLIC_ENDPOINTS and request.endpoint not in ('login', 'static', 'demo', 'demo_exit', 'auth.mfa_login', 'auth.google_login', 'auth.google_callback', 'auth.passkey_options', 'auth.passkey_verify', 'manage.register', 'manage.verify_registration', 'manage.google_registration', 'manage.accept_invite', 'manage.forgot_password', 'manage.reset_password') and not g.user:
+            return redirect(url_for('community.welcome') if request.path=='/' else url_for('login'))
+        inventory_writes = ('edit_component', 'adjust_stock', 'storage', 'projects', 'project', 'add_to_project', 'consume')
         if g.user and request.method == 'POST' and request.endpoint in inventory_writes:
             if sum(len(value.encode('utf-8')) for _, value in request.form.items(multi=True)) > 65536:
                 raise ValueError('Keep the text fields in one submission under 64 KB.')
@@ -202,6 +203,8 @@ def create_app(test_config=None):
     app.extensions['inventory_db'] = db
     from .management import install_management
     install_management(app, account_db, auth)
+    from .community import install_community
+    install_community(app, account_db, auth)
     app.add_url_rule('/login', 'login', auth['login'], methods=['GET', 'POST'])
     app.add_url_rule('/logout', 'logout', auth['logout'], methods=['POST'])
 
@@ -234,9 +237,7 @@ def create_app(test_config=None):
             return ' / '.join(names)
         return sorted([dict(r, path=path(r)) for r in locations], key=lambda r: r['path'])
 
-    @app.get('/')
-    @app.get('/search')
-    def index():
+    def component_search():
         clauses, params = [], []
         q = request.args.get('q', '').strip()
         if q:
@@ -284,7 +285,12 @@ def create_app(test_config=None):
         query = 'SELECT c.*,cat.name AS category,l.name AS location FROM components c LEFT JOIN categories cat ON cat.id=c.category_id LEFT JOIN locations l ON l.id=c.location_id'
         items = rows(query + (' WHERE ' + ' AND '.join(clauses) if clauses else '') + ' ORDER BY ' + sort, params)
         all_items = rows('SELECT stock,unit_price FROM components')
-        return render_template('inventory.html', items=items, facets=facets, tags=rows('SELECT * FROM tags ORDER BY name'), categories=rows('SELECT * FROM categories ORDER BY name'), locations=location_options(), suppliers=rows("SELECT DISTINCT supplier FROM components WHERE supplier!='' ORDER BY supplier"), total=len(all_items), empty=sum(r['stock']==0 for r in all_items), value=sum(Decimal(str(r['stock']))*Decimal(r['unit_price']) for r in all_items))
+        return dict(items=items, facets=facets, tags=rows('SELECT * FROM tags ORDER BY name'), categories=rows('SELECT * FROM categories ORDER BY name'), locations=location_options(), suppliers=rows("SELECT DISTINCT supplier FROM components WHERE supplier!='' ORDER BY supplier"), total=len(all_items), empty=sum(r['stock']==0 for r in all_items), value=sum(Decimal(str(r['stock']))*Decimal(r['unit_price']) for r in all_items))
+
+    @app.get('/')
+    @app.get('/search')
+    def index():
+        return render_template('inventory.html', **component_search())
 
     def uploaded(field, current):
         file = request.files.get(field)
@@ -368,6 +374,7 @@ def create_app(test_config=None):
             values = dict(name=name, name_id=name_id, stock=float(stock), unit=f.get('unit', '').strip() or 'pcs', unit_price=str(price.quantize(Decimal('0.000001'))), description=f.get('description', '').strip(), category_id=category_id, location_id=location_id, supplier=supplier, supplier_url=safe_url(f.get('supplier_url', '').strip()), attributes=f.get('attributes', '').strip(), code=f.get('code', '').strip() or name_id)
             threshold = f.get('low_stock', item.get('low_stock') or '').strip()
             values['low_stock'] = str(number(threshold)) if threshold else None
+            values['purchase_pack'] = str(number(f.get('purchase_pack', item.get('purchase_pack', '1')) or '1', Decimal('0.000001')))
             values.update(purchase_quantity=str(quantity) if quantity is not None else None, purchase_total=str(total_price) if total_price is not None else None, price_mode=mode)
             for field in ('size', 'resistance', 'capacitance', 'voltage', 'tolerance'):
                 values[field] = f.get(field, item.get(field, '')).strip()
@@ -408,7 +415,17 @@ def create_app(test_config=None):
 
     @app.get('/components/<int:item_id>')
     def component(item_id):
-        return render_template('component.html', tags=rows('SELECT t.name FROM tags t JOIN component_tags ct ON ct.tag_id=t.id WHERE ct.component_id=? ORDER BY t.name', (item_id,)), item=one('SELECT c.*,cat.name AS category,l.name AS location FROM components c LEFT JOIN categories cat ON cat.id=c.category_id LEFT JOIN locations l ON l.id=c.location_id WHERE c.id=?', (item_id,)), movements=rows('SELECT * FROM movements WHERE component_id=? ORDER BY id DESC LIMIT 50', (item_id,)))
+        return render_template('component.html', projects=rows('SELECT id,name FROM projects ORDER BY name'), tags=rows('SELECT t.name FROM tags t JOIN component_tags ct ON ct.tag_id=t.id WHERE ct.component_id=? ORDER BY t.name', (item_id,)), item=one('SELECT c.*,cat.name AS category,l.name AS location FROM components c LEFT JOIN categories cat ON cat.id=c.category_id LEFT JOIN locations l ON l.id=c.location_id WHERE c.id=?', (item_id,)), movements=rows('SELECT * FROM movements WHERE component_id=? ORDER BY id DESC LIMIT 50', (item_id,)))
+
+    @app.post('/components/<int:item_id>/project')
+    def add_to_project(item_id):
+        one('SELECT id FROM components WHERE id=?', (item_id,))
+        project_id = request.form.get('project_id')
+        one('SELECT id FROM projects WHERE id=?', (project_id,))
+        quantity = number(request.form.get('quantity','1'), Decimal('0.000001'))
+        db().execute('INSERT INTO project_items(project_id,component_id,quantity) VALUES(?,?,?) ON CONFLICT(project_id,component_id) DO UPDATE SET quantity=quantity+excluded.quantity', (project_id,item_id,float(quantity)))
+        db().commit()
+        return redirect(url_for('project',project_id=project_id))
 
     @app.post('/components/<int:item_id>/stock')
     def adjust_stock(item_id):
@@ -452,6 +469,14 @@ def create_app(test_config=None):
     def project(project_id):
         project = one('SELECT * FROM projects WHERE id=?', (project_id,))
         if request.method == 'POST':
+            if request.form.get('action') == 'details':
+                name = request.form.get('name', '').strip()
+                if not name or len(name)>150:
+                    raise ValueError('Enter a project name of up to 150 characters.')
+                db().execute('UPDATE projects SET name=?,description=? WHERE id=?', (name,request.form.get('description','')[:5000],project_id))
+                db().commit()
+                return redirect(url_for('project',project_id=project_id))
+            one('SELECT id FROM components WHERE id=?', (request.form.get('component_id'),))
             quantity = number(request.form.get('quantity', '0'))
             if quantity == 0:
                 db().execute('DELETE FROM project_items WHERE project_id=? AND component_id=?', (project_id, request.form['component_id']))
@@ -461,10 +486,20 @@ def create_app(test_config=None):
             return redirect(url_for('project', project_id=project_id))
         items = [dict(r) for r in rows('SELECT c.*,i.quantity FROM project_items i JOIN components c ON c.id=i.component_id WHERE i.project_id=? ORDER BY c.name', (project_id,))]
         for row in items:
-            row['shortage'] = max(0, row['quantity']-row['stock'])
+            row['shortage'] = max(Decimal('0'), Decimal(str(row['quantity']))-Decimal(str(row['stock'])))
             row['cost'] = Decimal(str(row['quantity'])) * Decimal(row['unit_price'])
             row['buy_cost'] = Decimal(str(row['shortage'])) * Decimal(row['unit_price'])
-        return render_template('project.html', project=project, items=items, components=rows('SELECT id,name,name_id FROM components ORDER BY name'), total=sum(r['cost'] for r in items), buy=sum(r['buy_cost'] for r in items))
+            pack = Decimal(row['purchase_pack'])
+            row['packs'] = (Decimal(str(row['shortage'])) / pack).to_integral_value(rounding=ROUND_CEILING)
+            row['purchase_units'] = row['packs'] * pack
+            row['package_cost'] = row['purchase_units'] * Decimal(row['unit_price'])
+        search = component_search()
+        components = search.pop('items')
+        for key in ('total','empty','value'):
+            search.pop(key)
+        return render_template('project.html', project=project, items=items, components=components,
+            needed={r['id']:r['quantity'] for r in items}, total=sum(r['cost'] for r in items), buy=sum(r['buy_cost'] for r in items),
+            package_buy=sum(r['package_cost'] for r in items), filter_action=url_for('project',project_id=project_id), **search)
 
     @app.post('/projects/<int:project_id>/consume')
     def consume(project_id):

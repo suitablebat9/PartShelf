@@ -4,6 +4,8 @@ A self-hosted inventory system for workshops and client teams, with separate cli
 
 **[Install in a Proxmox LXC →](docs/PROXMOX.md)**
 
+**[Public pages, Stripe donations, feedback updates, SEO, and project pack costs →](docs/PUBLIC-SITE.md)**
+
 ## Features
 
 - Separate client inventories, owner/admin/member/viewer roles, public verified registration, staff invitations, password recovery, workspace export, and a platform management panel. [Client setup and operations](docs/CLIENT-WORKSPACES.md).

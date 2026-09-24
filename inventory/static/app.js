@@ -101,7 +101,7 @@ if(filterForm){
   const status=document.querySelector('#filter-status'),results=document.querySelector('#inventory-results');
   let timer,controller,revision=0;
   async function applyFilters(version){
-    controller=new AbortController();const url='/search?'+new URLSearchParams(new FormData(filterForm));
+    controller=new AbortController();const url=filterForm.getAttribute('action')+'?'+new URLSearchParams(new FormData(filterForm));
     try{
       const response=await fetch(url,{signal:controller.signal});
       if(!response.ok)throw new Error('Request failed');
@@ -114,7 +114,7 @@ if(filterForm){
         const match=choices.find(c=>c.name===input.name&&c.value===input.value);
         if(match){input.disabled=match.disabled;const count=input.closest('label').querySelector('small');if(count)count.textContent=match.closest('label').querySelector('small').textContent}
       });
-      history.replaceState(null,'',url);status.textContent='Filters are up to date.';results.removeAttribute('aria-busy');
+      history.replaceState(null,'',url);status.textContent='';results.removeAttribute('aria-busy');
     }catch(error){if(error.name!=='AbortError'&&version===revision){status.textContent='Could not update filters. Change a selection or press Search to retry.';results.removeAttribute('aria-busy')}}
   }
   function scheduleFilters(){clearTimeout(timer);controller?.abort();const version=++revision;status.textContent='Updating results…';results.setAttribute('aria-busy','true');timer=setTimeout(()=>applyFilters(version),250)}
