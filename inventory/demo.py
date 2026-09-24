@@ -64,7 +64,8 @@ def install_demo(app, schema):
             db.execute('PRAGMA foreign_keys=ON')
             db.execute('BEGIN IMMEDIATE')
             reset_at=db.execute('SELECT reset_at FROM demo_state WHERE id=1').fetchone()[0]
-            if time.time()>=reset_at:
+            expired=time.time()>=reset_at
+            if expired:
                 for table in ('stock_alerts','project_items','movements','component_tags','components','projects','tags','locations','categories'):
                     db.execute('DELETE FROM '+table)
                 seed(db)
@@ -74,6 +75,8 @@ def install_demo(app, schema):
                     if file.is_file() or file.is_symlink():
                         file.unlink()
             db.commit()
+            if expired:
+                db.execute('VACUUM')
         return reset_at
 
     def connect():
