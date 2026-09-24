@@ -10,7 +10,7 @@ from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from .mailer import send_email, mail_ready
 
 PUBLIC_ENDPOINTS = {'community.welcome','community.about','community.support','community.terms','community.privacy',
-                    'community.feedback','community.roadmap','community.donation_thanks','community.donation_embed','visitor_pulse','community.email_preferences','community.robots','community.sitemap'}
+                    'community.feedback','community.roadmap','community.donation_thanks','community.donation_embed','visitor_pulse','community.email_preferences','community.unsubscribe','community.robots','community.sitemap'}
 INDEXABLE = {'community.welcome','community.about','community.support','community.terms','community.privacy','community.feedback','community.roadmap'}
 STATUSES = ('New', 'Reviewing', 'Planned', 'In progress', 'Released', 'Not planned')
 PROMISE = 'I will never lock Partshelf features behind a paywall. Every feature is available without donating. Contributions are optional and help support hosting, maintenance, and development.'
@@ -74,6 +74,10 @@ def install_community(app, db, auth):
             revision INTEGER NOT NULL DEFAULT 0, notified_revision INTEGER NOT NULL DEFAULT 0,
             created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
             CREATE INDEX IF NOT EXISTS feedback_created ON feedback(created);''')
+        db().execute('BEGIN IMMEDIATE')
+        columns={row[1] for row in db().execute('PRAGMA table_info(feedback)')}
+        for name,definition in [('deleted','INTEGER NOT NULL DEFAULT 0'),('roadmap_id','INTEGER')]:
+            if name not in columns: db().execute('ALTER TABLE feedback ADD COLUMN '+name+' '+definition)
         for key, value in DEFAULTS.items():
             db().execute('INSERT OR IGNORE INTO site_settings VALUES(?,?)', (key,value))
         db().commit()
@@ -190,6 +194,18 @@ def install_community(app, db, auth):
             return redirect(url_for('community.feedback'))
         return render_template('feedback.html')
 
+    @bp.get('/feedback/unsubscribe/<token>')
+    def unsubscribe(token):
+        try:
+            ident,nonce=URLSafeTimedSerializer(app.secret_key,salt='feedback-email').loads(token,max_age=365*86400)
+        except (BadSignature,SignatureExpired,TypeError,ValueError):
+            abort(400,'This unsubscribe link is invalid or expired.')
+        row=db().execute('SELECT id FROM feedback WHERE id=? AND nonce=?',(ident,nonce)).fetchone()
+        if not row: abort(404)
+        db().execute('UPDATE feedback SET subscribed=0 WHERE id=?',(ident,))
+        db().commit()
+        return render_template('unsubscribed.html')
+
     @bp.route('/feedback/email/<token>', methods=['GET','POST'])
     def email_preferences(token):
         try:
@@ -243,11 +259,11 @@ def install_community(app, db, auth):
         return render_template('site_admin.html')
 
     def notify(row):
-        if not (row['verified'] and row['subscribed'] and row['revision']>row['notified_revision']):
+        if not (not row['deleted'] and row['verified'] and row['subscribed'] and row['revision']>row['notified_revision']):
             return
         send_email(row['email'], 'Partshelf feature update: '+row['status'],
             'Your request: '+row['title']+'\nStatus: '+row['status']+'\n\n'+row['update_text']+
-            '\n\nStop future updates: '+origin()+url_for('community.email_preferences',token=token_for(row)))
+            '\n\nUnsubscribe: '+origin()+url_for('community.unsubscribe',token=token_for(row)))
         db().execute('UPDATE feedback SET notified_revision=? WHERE id=?',(row['revision'],row['id']))
         db().commit()
 
@@ -258,7 +274,27 @@ def install_community(app, db, auth):
             row=db().execute('SELECT * FROM feedback WHERE id=?',(request.form.get('id'),)).fetchone()
             if not row:
                 abort(404)
-            if request.form.get('action')!='retry':
+            action=request.form.get('action','save')
+            if action in ('delete','restore'):
+                changed=db().execute('UPDATE feedback SET deleted=?,revision=revision+1 WHERE id=? AND revision=?',(int(action=='delete'),row['id'],request.form.get('revision'))).rowcount
+                if not changed: abort(409,'This request changed. Reload before saving.')
+                db().commit();flash('Feedback moved to Trash.' if action=='delete' else 'Feedback restored.')
+                return redirect(url_for('community.feedback_admin'))
+            if row['deleted']: abort(404)
+            if action=='roadmap':
+                title=request.form.get('roadmap_title','').strip()
+                description=request.form.get('roadmap_description','').strip()
+                status=request.form.get('roadmap_status','Planned')
+                if not title or len(title)>150 or len(description)>5000 or status not in ('Planned','In progress','Released'):
+                    raise ValueError('Enter a public title, description and valid roadmap status.')
+                conn=db();conn.execute('BEGIN IMMEDIATE')
+                fresh=conn.execute('SELECT * FROM feedback WHERE id=?',(row['id'],)).fetchone()
+                if fresh['roadmap_id'] or str(fresh['revision'])!=request.form.get('revision'):
+                    conn.rollback();abort(409,'This request changed or is already on the roadmap. Reload before saving.')
+                roadmap_id=conn.execute('INSERT INTO roadmap(title,description,status,published) VALUES(?,?,?,1)',(title,description,status)).lastrowid
+                conn.execute('UPDATE feedback SET roadmap_id=?,status=?,update_text=?,revision=revision+1,updated=CURRENT_TIMESTAMP WHERE id=?',(roadmap_id,status,'Added to the public roadmap: '+title+'\n'+origin()+'/roadmap',row['id']))
+                conn.commit()
+            elif action!='retry':
                 status=request.form.get('status','')
                 note=request.form.get('update_text','').strip()
                 if status not in STATUSES or len(note)>5000:
@@ -279,8 +315,9 @@ def install_community(app, db, auth):
             page=max(1,int(request.args.get('page','1')))
         except ValueError:
             abort(400)
-        entries=db().execute('SELECT * FROM feedback ORDER BY id DESC LIMIT 51 OFFSET ?',((page-1)*50,)).fetchall()
-        return render_template('feedback_admin.html', entries=entries[:50], has_next=len(entries)>50, page=page, statuses=STATUSES)
+        trash=request.args.get('trash')=='1'
+        entries=db().execute('SELECT * FROM feedback WHERE deleted=? ORDER BY id DESC LIMIT 51 OFFSET ?',(int(trash),(page-1)*50)).fetchall()
+        return render_template('feedback_admin.html', entries=entries[:50], has_next=len(entries)>50, page=page, statuses=STATUSES, trash=trash)
 
     @bp.get('/robots.txt')
     def robots():

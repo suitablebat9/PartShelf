@@ -21,6 +21,7 @@ from werkzeug.security import check_password_hash
 from webauthn import generate_registration_options, generate_authentication_options, verify_registration_response, verify_authentication_response, options_to_json
 from webauthn.helpers import bytes_to_base64url, base64url_to_bytes
 from webauthn.helpers.structs import AuthenticatorSelectionCriteria, ResidentKeyRequirement, UserVerificationRequirement, PublicKeyCredentialDescriptor
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from .mailer import mail_ready, send_email
 from .analytics import record_signup
 from werkzeug.exceptions import Forbidden
@@ -251,10 +252,6 @@ def install_auth(app, db):
             flash('Incorrect password.', 'error')
         return render_template('reauthenticate.html')
 
-    @bp.get('/settings')
-    def settings():
-        return render_template('settings.html')
-
     @bp.get('/account')
     def account():
         return render_template('account.html', account=g.user, mail_ready=mail_ready(), google_ready=google_ready(), passkey_ready=passkey_ready(),
@@ -274,6 +271,11 @@ def install_auth(app, db):
         email = request.form.get('email','').strip().lower()
         if not re.fullmatch(r'[^\s@<>\r\n]+@[^\s@<>\r\n]+\.[^\s@<>\r\n]+', email) or len(email)>254:
             raise ValueError('Enter a valid email address.')
+        if email == g.user['email'] and g.user['email_verified']:
+            flash('Your email is already verified.')
+            return redirect(url_for('auth.account'))
+        if db().execute('SELECT 1 FROM users WHERE id!=? AND (email=? COLLATE NOCASE OR username=? COLLATE NOCASE)', (g.user['id'],email,email)).fetchone():
+            raise ValueError('This email is already associated with another account.')
         code = f'{secrets.randbelow(1000000):06d}'
         challenge('verify_email', g.user['id'], {'email':email}, code)
         send_email(email, 'Verify your Partshelf email', f'Your email verification code is {code}. It expires in 10 minutes.')
@@ -291,6 +293,18 @@ def install_auth(app, db):
         db().execute('UPDATE users SET email=?,email_verified=1 WHERE id=?', (pending['payload']['email'],g.user['id']))
         revoke_others();db().commit();flash('Email verified.')
         return redirect(url_for('auth.account'))
+
+    @bp.get('/notifications/unsubscribe/<token>')
+    def unsubscribe_notifications(token):
+        try:
+            user_id,email=URLSafeTimedSerializer(app.secret_key,salt='stock-unsubscribe').loads(token,max_age=365*86400)
+        except (BadSignature,SignatureExpired,TypeError,ValueError):
+            abort(400,'This unsubscribe link is invalid or expired.')
+        if not db().execute('SELECT 1 FROM users WHERE id=? AND email=?',(user_id,email)).fetchone():
+            abort(404)
+        db().execute('UPDATE users SET low_stock_email=0 WHERE id=?',(user_id,))
+        db().commit()
+        return render_template('unsubscribed.html',stock=True)
 
     @bp.post('/account/notifications')
     def notifications():
@@ -545,6 +559,9 @@ def install_auth(app, db):
         db().execute('UPDATE users SET google_sub=NULL WHERE id=?',(g.user['id'],))
         revoke_others();db().commit();flash('Google account unlinked.')
         return redirect(url_for('auth.account'))
+
+    from .preferences import install_preferences
+    install_preferences(app, db)
 
     app.config.update(PERMANENT_SESSION_LIFETIME=timedelta(days=30),SESSION_REFRESH_EACH_REQUEST=False)
     app.register_blueprint(bp)

@@ -7,6 +7,7 @@ async function authPost(url,body){
   const data=await response.json();if(!response.ok)throw new Error(data.error||'Could not complete the request.');return data;
 }
 document.querySelectorAll('[data-passkey]').forEach(button=>button.addEventListener('click',async()=>{
+  document.querySelector('#passkey-dialog')?.close();
   const status=document.querySelector('#passkey-status');button.disabled=true;status.textContent='Follow your device’s passkey prompt…';
   try{
     if(!window.PublicKeyCredential||!window.isSecureContext)throw new Error('Passkeys need a supported browser and the HTTPS website address.');
@@ -25,3 +26,7 @@ document.querySelectorAll('[data-passkey]').forEach(button=>button.addEventListe
     location.assign(data.redirect);
   }catch(error){status.textContent=error.name==='NotAllowedError'?'Passkey request cancelled or unavailable. You can try again or use your password.':error.message;button.disabled=false}
 }));
+
+document.querySelector('#open-passkey-dialog')?.addEventListener('click',()=>document.querySelector('#passkey-dialog').showModal());
+
+document.querySelector('#passkey-dialog [data-close-dialog]')?.addEventListener('click',()=>document.querySelector('#passkey-dialog').close());

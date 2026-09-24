@@ -157,7 +157,7 @@ def create_app(test_config=None):
         demo['protect']()
         if request.method == 'POST' and not secrets.compare_digest(session.get('csrf', ''), request.headers.get('X-CSRF-Token', request.form.get('csrf', '!'))):
             abort(400, 'Invalid form token. Reload the page and try again.')
-        if request.endpoint not in PUBLIC_ENDPOINTS and request.endpoint not in ('login', 'static', 'demo', 'demo_exit', 'auth.mfa_login', 'auth.google_login', 'auth.google_callback', 'auth.passkey_options', 'auth.passkey_verify', 'manage.register', 'manage.verify_registration', 'manage.google_registration', 'manage.accept_invite', 'manage.forgot_password', 'manage.reset_password') and not g.user:
+        if request.endpoint not in PUBLIC_ENDPOINTS and request.endpoint not in ('login', 'static', 'demo', 'demo_exit', 'auth.unsubscribe_notifications', 'auth.mfa_login', 'auth.google_login', 'auth.google_callback', 'auth.passkey_options', 'auth.passkey_verify', 'manage.register', 'manage.verify_registration', 'manage.google_registration', 'manage.accept_invite', 'manage.forgot_password', 'manage.reset_password') and not g.user:
             if request.method == 'GET' and request.endpoint:
                 session['login_destination'] = request.full_path.rstrip('?')
             return redirect(url_for('community.welcome') if request.path=='/' else url_for('login'))

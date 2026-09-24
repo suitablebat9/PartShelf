@@ -26,7 +26,7 @@ function prices(){
     if(mode==='purchase')unitPrice.value=String(Number((Number(purchaseTotal.value||0)/quantity).toFixed(6)));
     else purchaseTotal.value=String(Number((Number(unitPrice.value||0)*quantity).toFixed(6)));
     document.querySelector('#price-summary').textContent=`${quantity} × ${unitPrice.value||0} per unit = ${purchaseTotal.value||0} purchase total`;
-  }else document.querySelector('#price-summary').textContent='Enter the original purchase quantity to calculate both prices.';
+  }else document.querySelector('#price-summary').textContent='';
 }
 if(purchaseQty){
   let manualQuantity=Boolean(purchaseQty.value);
@@ -109,6 +109,7 @@ if(filterForm){
       if(version!==revision)return;
       const next=page.querySelector('#inventory-results');if(!next)throw new Error('Sign in again');
       results.innerHTML=next.innerHTML;
+      const storageContext=document.querySelector('#storage-context');if(storageContext)storageContext.innerHTML=page.querySelector('#storage-context')?.innerHTML||'';
       const choices=[...page.querySelectorAll('.filter-choice input')];
       filterForm.querySelectorAll('.filter-choice input').forEach(input=>{
         const match=choices.find(c=>c.name===input.name&&c.value===input.value);
@@ -151,3 +152,10 @@ if(labelForm){
   });
   countLabels();
 }
+
+const settingsForm=document.querySelector('#appearance-settings');
+settingsForm?.querySelectorAll('[name="palette"]').forEach(input=>input.addEventListener('change',()=>document.body.dataset.palette=input.value));
+settingsForm?.querySelectorAll('[data-move]').forEach(button=>button.addEventListener('click',()=>{const row=button.closest('.sidebar-preference'),other=button.dataset.move==='up'?row.previousElementSibling:row.nextElementSibling;if(other){if(button.dataset.move==='up')other.before(row);else other.after(row);button.focus()}}));
+
+const fixedFooter=document.querySelector('footer');
+if(fixedFooter)new ResizeObserver(()=>document.documentElement.style.setProperty('--footer-height',fixedFooter.offsetHeight+'px')).observe(fixedFooter);

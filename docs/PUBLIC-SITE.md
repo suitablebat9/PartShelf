@@ -49,3 +49,13 @@ Set the Payment Link's **After payment → Redirect** URL in Stripe to:
 `https://partshelf.pcb-studios.com/donation/thank-you`
 
 The thank-you page is public and excluded from search indexing. It never treats URL parameters or a visit as payment verification. Payment records and receipts remain in Stripe. No payment is submitted during development checks.
+
+## Personal appearance and navigation
+
+The gear icon opens Settings. Each account can choose Partshelf blue (default), Forest green, Violet, Warm amber, or Slate; every palette works in light and dark mode. Sidebar items can be reordered with the arrow buttons, hidden, or restored. The Donate button is optional and appears below navigation. These preferences are stored per user on the server. Light/dark mode remains a browser preference. Sign out is in Settings.
+
+## Feedback management and email
+
+The feedback inbox can move requests to Trash and restore them. A roadmap action lets the administrator review a public title, description and status before publishing; private feedback text and email addresses are not automatically copied. It links the request to the roadmap item and sends the update to confirmed, subscribed submitters, using the existing retry control if delivery fails. Duplicate submissions are rejected.
+
+Business email includes a branded HTML version and a plain-text alternative. Feedback and low-stock emails use signed unsubscribe links that immediately disable their respective subscriptions when opened, then show a confirmation page. A mail client or scanner that opens links can therefore trigger unsubscribing; no further confirmation is required. Unsubscribe links expire after one year. Changing an account email requires recent authentication and verification of the new address; the original address remains until verification succeeds.
