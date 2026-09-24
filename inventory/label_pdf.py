@@ -87,13 +87,22 @@ def render_pdf(items, options):
         for _ in range(options['copies']):
             tx, ty, tw, th = left, bottom, area_w, area_h
             if options['mode'] == 'qr':
-                size = min(area_h, area_w * (.42 if text else 1))
+                # Use the full short edge on wide/tall labels. On compact labels,
+                # reserve space for legible text instead of shrinking every QR to
+                # a fixed fraction of the label width. Portrait text goes below.
+                landscape = area_w >= area_h
+                short, long = sorted((area_w, area_h))
+                size = min(short, (long-gap)*.65) if text else short
                 image = qrcode.make(item['code'], border=0 if not any((left, right, top, bottom)) else 4).convert('RGB')
-                x = left if text else left+(area_w-size)/2
-                canvas.drawImage(ImageReader(image), x, bottom+(area_h-size)/2, size, size)
+                x, y = left+(area_w-size)/2, bottom+(area_h-size)/2
                 if text:
-                    tx = left+size+gap
-                    tw = width-right-tx
+                    if landscape:
+                        x = left
+                        tx, tw = left+size+gap, area_w-size-gap
+                    else:
+                        y = height-top-size
+                        th = area_h-size-gap
+                canvas.drawImage(ImageReader(image), x, y, size, size)
             elif options['mode'] == 'barcode':
                 if not item['code'] or any(ord(c) < 32 or ord(c) > 126 for c in item['code']):
                     raise ValueError(f"{item['name']}: Code 128 needs printable ASCII. Choose QR or change its identifier.")

@@ -42,6 +42,7 @@ def create_app(test_config=None):
                       SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax',
                       SESSION_COOKIE_SECURE=os.environ.get('COOKIE_SECURE') == '1')
     app.config.update(PUBLIC_URL=os.environ.get('PUBLIC_URL', '').rstrip('/'),
+                      ALTERNATE_PUBLIC_URLS=os.environ.get('ALTERNATE_PUBLIC_URLS', ''),
                       GOOGLE_CLIENT_ID=os.environ.get('GOOGLE_CLIENT_ID', ''), GOOGLE_CLIENT_SECRET=os.environ.get('GOOGLE_CLIENT_SECRET', ''),
                       TRUST_CLOUDFLARE_COUNTRY=os.environ.get('TRUST_CLOUDFLARE_COUNTRY') == '1',
                       SMTP_HOST=os.environ.get('SMTP_HOST', ''), SMTP_PORT=int(os.environ.get('SMTP_PORT', '587')),

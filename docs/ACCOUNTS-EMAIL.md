@@ -88,3 +88,32 @@ Partshelf sets both the email From header and SMTP envelope sender to `MAIL_FROM
 In Gmail, while signed into that primary mailbox, open **Settings → See all settings → Accounts → Send mail as**. Add/verify `no-reply@pcb-studios.com` there if absent. An alias that receives messages in Workspace is not, by itself, evidence the SMTP account is authorized to send as it. If Google still rewrites the From address, inspect a delivered message's original headers and the alias's send-as status; the application cannot force Google to honor an unapproved sender.
 
 Do not change the primary mailbox's default sender unless you also want its ordinary mail to use no-reply. [Gmail send-as instructions](https://support.google.com/mail/answer/22370?hl=en).
+
+## Primary address and additional hostnames
+
+Point each Cloudflare Tunnel hostname at the same Partshelf origin. Set `PUBLIC_URL`
+to the preferred HTTPS address for email links. Set `ALTERNATE_PUBLIC_URLS` to a
+comma-separated list of additional HTTPS origins. Google callbacks and passkeys
+use the current address only when it matches that explicit list or `PUBLIC_URL`.
+Unrecognized hosts cannot supply arbitrary OAuth callback URLs.
+
+For PCB Studios, retain both Google OAuth **Authorized redirect URIs**:
+
+- `https://partshelf.pcb-studios.com/auth/google/callback`
+- `https://inventory.pcb-studios.com/auth/google/callback`
+
+After saving those in the existing Google OAuth web client, configure the LXC:
+
+```sh
+python3 /opt/partshelf/current/scripts/setup_integrations.py \
+  --public-url https://partshelf.pcb-studios.com \
+  --alternate-public-url https://inventory.pcb-studios.com
+```
+
+Credentials and other integration settings are preserved. Omitting
+`--alternate-public-url` preserves existing aliases; supplying it replaces the
+alias list (repeat the option for multiple aliases). Both addresses use the same
+accounts and inventory, with separate host-only sign-in cookies. Existing
+passkeys continue working on their original hostname; sign in with a password or
+Google on the new hostname and add a passkey there. Passkeys are never broadened
+to unrelated subdomains.

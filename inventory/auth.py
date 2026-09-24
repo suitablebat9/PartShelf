@@ -355,6 +355,15 @@ def install_auth(app, db):
     def origin():
         if not passkey_ready():
             raise ValueError('Set the server PUBLIC_URL to the HTTPS address before using passkeys.')
+        # Only use explicitly configured origins; never derive an OAuth redirect
+        # or WebAuthn trust boundary from an arbitrary Host/X-Forwarded-Host.
+        origins = [app.config['PUBLIC_URL']] + app.config.get('ALTERNATE_PUBLIC_URLS', '').split(',')
+        for candidate in origins:
+            candidate = candidate.strip().rstrip('/')
+            parsed = urlsplit(candidate)
+            if (parsed.scheme == 'https' and parsed.netloc.lower() == request.host.lower()
+                    and not (parsed.path or parsed.query or parsed.fragment or parsed.username)):
+                return candidate
         return app.config['PUBLIC_URL']
 
     @bp.post('/auth/passkey/options')
@@ -430,7 +439,7 @@ def install_auth(app, db):
         mode = 'signup' if request.form.get('mode') == 'signup' else 'login'
         limit('google-start:'+str(request.remote_addr), 30, 900)
         challenge('google_flow',payload={'mode':mode,'remember':request.form.get('remember')=='1'})
-        return google.authorize_redirect(app.config['PUBLIC_URL']+'/auth/google/callback',prompt='select_account')
+        return google.authorize_redirect(origin()+'/auth/google/callback',prompt='select_account')
 
     @bp.post('/account/google/reauthenticate')
     def google_reauthenticate():
@@ -438,7 +447,7 @@ def install_auth(app, db):
             abort(403)
         limit('reauth:'+str(g.user['id']))
         challenge('google_flow',g.user['id'],{'mode':'reauth','sid':digest(session['sid']),'remember':bool(g.auth_session['remember'])})
-        return google.authorize_redirect(app.config['PUBLIC_URL']+'/auth/google/callback',prompt='select_account')
+        return google.authorize_redirect(origin()+'/auth/google/callback',prompt='select_account')
 
     @bp.post('/account/google/link')
     @recent
@@ -446,7 +455,7 @@ def install_auth(app, db):
         if not google_ready():
             raise ValueError('Google sign-in has not been configured on this server.')
         challenge('google_flow',g.user['id'],{'mode':'link','sid':digest(session['sid'])})
-        return google.authorize_redirect(app.config['PUBLIC_URL']+'/auth/google/callback',prompt='select_account')
+        return google.authorize_redirect(origin()+'/auth/google/callback',prompt='select_account')
 
     @bp.get('/auth/google/callback')
     def google_callback():

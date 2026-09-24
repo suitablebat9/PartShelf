@@ -289,3 +289,15 @@ def test_zero_margin_codes_fill_label_edges():
         image = Image.open(io.BytesIO(preview_png(render_pdf([dict(name='Part', code='R1')], options)))).convert('RGB')
         bbox = ImageChops.difference(image, Image.new('RGB', image.size, 'white')).getbbox()
         assert bbox == (0, 0, image.width, image.height)
+
+
+@pytest.mark.parametrize('width,height', [('3','1'), ('1','3'), ('2.25','1.25')])
+def test_zero_margin_qr_with_text_reaches_short_edges(width, height):
+    from inventory.label_pdf import settings, render_pdf, preview_png
+    from PIL import Image, ImageChops
+    options = settings(dict(width=width, height=height, text='{name}', mode='qr',
+                            margin_left='0', margin_right='0', margin_top='0', margin_bottom='0'))
+    image = Image.open(io.BytesIO(preview_png(render_pdf([dict(name='10k resistor', code='R1')], options)))).convert('RGB')
+    side = min(image.size)
+    qr = image.crop((0, 0, side, side))
+    assert ImageChops.difference(qr, Image.new('RGB', qr.size, 'white')).getbbox() == (0, 0, side, side)

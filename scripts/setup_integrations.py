@@ -26,6 +26,7 @@ def update_env(path, values):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--public-url',default='https://inventory.pcb-studios.com')
+    parser.add_argument('--alternate-public-url', action='append', help='Additional HTTPS origin to keep working; repeat for multiple aliases. Omit to preserve current aliases.')
     parser.add_argument('--credentials',action='store_true',help='Privately prompt for Google OAuth and Workspace SMTP credentials')
     parser.add_argument('--cloudflare-country',action='store_true',help='Trust CF-IPCountry from the Cloudflare-protected origin for signup analytics')
     args=parser.parse_args()
@@ -35,7 +36,17 @@ def main():
     parsed=urlsplit(url)
     if parsed.scheme!='https' or not parsed.hostname or parsed.path or parsed.query or parsed.fragment or parsed.username:
         parser.error('Use a public HTTPS origin, for example https://inventory.pcb-studios.com')
+    aliases=[]
+    for alias in args.alternate_public_url or []:
+        alias=alias.rstrip('/')
+        parsed=urlsplit(alias)
+        if parsed.scheme!='https' or not parsed.hostname or parsed.path or parsed.query or parsed.fragment or parsed.username:
+            parser.error('Alternate URLs must be public HTTPS origins.')
+        if alias!=url and alias not in aliases:
+            aliases.append(alias)
     values={'PUBLIC_URL':url,'COOKIE_SECURE':'1','MAIL_FROM':'no-reply@pcb-studios.com'}
+    if args.alternate_public_url is not None:
+        values['ALTERNATE_PUBLIC_URLS']=','.join(aliases)
     if args.cloudflare_country:
         values['TRUST_CLOUDFLARE_COUNTRY']='1'
     if args.credentials:

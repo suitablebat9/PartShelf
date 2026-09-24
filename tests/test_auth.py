@@ -255,3 +255,48 @@ def test_email_transport_uses_tls_and_business_sender(app):
         message=smtp.return_value.send_message.call_args.args[0]
         assert 'no-reply@pcb-studios.com' in message['From']
         assert message['Reply-To']=='support@pcb-studios.com'
+
+
+@pytest.mark.parametrize('host,expected', [
+    ('partshelf.example.com', 'partshelf.example.com'),
+    ('inventory.example.com', 'inventory.example.com'),
+    ('attacker.example.com', 'partshelf.example.com'),
+])
+def test_configured_domains_keep_google_and_passkeys_on_same_origin(app, host, expected):
+    app.config.update(PUBLIC_URL='https://partshelf.example.com',
+                      ALTERNATE_PUBLIC_URLS='https://inventory.example.com',
+                      GOOGLE_CLIENT_ID='test', GOOGLE_CLIENT_SECRET='test')
+    c = app.test_client()
+    base = 'https://' + host
+    page = c.get('/login', base_url=base)
+    import re
+    token = re.search(rb'name="csrf" value="([^"]+)"', page.data).group(1).decode()
+    google = app.extensions['authlib.integrations.flask_client'].create_client('google')
+    with patch.object(google, 'authorize_redirect', return_value=app.redirect('/mock-google')) as redirect:
+        response = c.post('/auth/google', base_url=base, data={'csrf': token},
+                          headers={'X-Forwarded-Host': 'attacker.example.com'})
+        assert response.status_code == 302
+        redirect.assert_called_once_with('https://' + expected + '/auth/google/callback', prompt='select_account')
+    response = c.post('/auth/passkey/options', base_url=base, json={}, headers={'X-CSRF-Token': token})
+    assert response.status_code == 200
+    assert response.json['rpId'] == expected
+    assert 'Domain=' not in response.headers.get('Set-Cookie', '')
+
+
+def test_existing_passkey_still_verifies_on_old_domain_after_primary_changes(client, app):
+    app.config['PUBLIC_URL'] = 'https://inventory.test'
+    options = api(client, '/account/passkey/options').json
+    private, credential = create_credential(options)
+    assert api(client, '/account/passkey/verify', credential=credential).status_code == 200
+    app.config.update(PUBLIC_URL='https://partshelf.test', ALTERNATE_PUBLIC_URLS='https://inventory.test')
+    import re
+    for host, expected_status in [('inventory.test', 200), ('partshelf.test', 400)]:
+        c = app.test_client()
+        base = 'https://' + host
+        page = c.get('/login', base_url=base)
+        token = re.search(rb'name="csrf" value="([^"]+)"', page.data).group(1).decode()
+        headers = {'X-CSRF-Token': token}
+        options = c.post('/auth/passkey/options', base_url=base, json={}, headers=headers).json
+        signed = assertion(private, credential['id'], options)
+        response = c.post('/auth/passkey/verify', base_url=base, json={'credential': signed}, headers=headers)
+        assert response.status_code == expected_status
