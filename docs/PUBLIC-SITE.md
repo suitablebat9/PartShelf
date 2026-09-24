@@ -41,3 +41,19 @@ Custom HTML takes precedence over the corresponding plain-text settings. For exa
 The platform-only Analytics page includes live website and demo browser counts, plus demo visits today, over 30 days, and since tracking began. Live counts use visible-page heartbeats every 30 seconds with a two-minute activity window. Demo is a subset of the website total. A demo visit includes viewing the demo landing page or exploring the demo; it counts once until the browser has been away from demo activity for 30 minutes. Multiple tabs sharing a session are deduplicated. Counts start when this version is installed, not retroactively.
 
 These are approximate sessions, not unique identified people: separate browsers, devices, cleared cookies, and sign-in transitions can create separate sessions. Background tabs stop reporting, so abandoned pages age out. JavaScript blockers and browser privacy settings may reduce counts. Platform administrators, Do Not Track, and Global Privacy Control are excluded. An anonymous random identifier is kept in the existing signed session cookie; visitor records contain no account, email, or raw IP. Activity rows older than a day are pruned during subsequent pulses; daily aggregate demo totals are retained. The admin cards refresh every 15 seconds while visible.
+
+## App template HTML editor
+
+**Public site settings → Edit app HTML templates** opens `/management/templates`. Select Inventory, Labels (Label studio), account screens, shared Base layout, or another template. Edit the surrounding HTML, headings, descriptions, and button/label text. Existing Jinja expressions/instructions, dynamic attribute contexts, form controls, IDs, data attributes, scripts, and options must remain unchanged; validation rejects changes to these contracts. This is HTML customization, not a way to execute arbitrary Python, JavaScript, or template code.
+
+The preview is static and uses placeholders instead of live account or inventory data. Save publishes across all workspaces. Restore default template restores the shipped version. Editor and settings routes always render the shipped layout for recovery. Public-page content overrides still take priority over their corresponding templates. Template customizations survive restarts and are backed up with the database. When a code update changes the original template, its older override is retained but paused; restore the updated default and reapply desired edits before publishing again.
+
+## Stripe buy button and thank-you page
+
+The supplied Stripe Buy Button is embedded on both `/welcome` and `/support`. Manage its button ID and **publishable** key in Public site settings. Never enter a secret key. Clear both fields to disable the widget. Stripe JavaScript and frames are permitted on the public pages that embed it; authenticated application pages retain their existing script policy. The Buy Button opens Stripe-hosted checkout; it is not an embedded credit-card entry form. A full embedded Checkout integration is a different Stripe integration requiring server-side credentials.
+
+Set the Payment Link's **After payment → Redirect** URL in Stripe to:
+
+`https://partshelf.pcb-studios.com/donation/thank-you`
+
+The thank-you page is public, editable in the public HTML editor, and excluded from search indexing. It never treats URL parameters or a visit as payment verification. Payment records and receipts remain in Stripe. No payment is submitted during development checks.

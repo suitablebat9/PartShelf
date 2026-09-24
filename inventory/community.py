@@ -10,7 +10,7 @@ from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from .mailer import send_email, mail_ready
 
 PUBLIC_ENDPOINTS = {'community.welcome','community.about','community.support','community.terms','community.privacy',
-                    'community.feedback','community.roadmap','visitor_pulse','community.email_preferences','community.robots','community.sitemap'}
+                    'community.feedback','community.roadmap','community.donation_thanks','community.donation_embed','visitor_pulse','community.email_preferences','community.robots','community.sitemap'}
 INDEXABLE = {'community.welcome','community.about','community.support','community.terms','community.privacy','community.feedback','community.roadmap'}
 STATUSES = ('New', 'Reviewing', 'Planned', 'In progress', 'Released', 'Not planned')
 PROMISE = 'I will never lock Partshelf features behind a paywall. Every feature is available without donating. Contributions are optional and help support hosting, maintenance, and development.'
@@ -59,6 +59,7 @@ Storage and choices
 Data is stored on the operator’s server and in backups. Users with permission can export inventory and use account/workspace deletion controls. Administrative recovery copies and backups may retain deleted records. Contact support@pcb-studios.com for privacy questions, correction requests, or permanent deletion requests. Do not upload sensitive information that is unnecessary for inventory management.'''
 DEFAULTS = {'about_name':'Carson', 'about_text':"I'm the creator behind PCBStudios. I’m building Partshelf to make organizing components, planning projects, and finding the right part easier. Your suggestions help shape where it goes next.",
             'about_ai_heading':'Built with help from AI', 'about_ai_text':'AI tools, including OpenAI’s Codex, helped write code, explore designs, troubleshoot problems, and build features for Partshelf. The project’s direction and the decisions about what to build come from me and the people using it. I’m sharing that openly because I want you to know how the project was made.',
+            'stripe_buy_button_id':'buy_btn_1UJFm36xlGS0fY1JvHZYI3ms', 'stripe_publishable_key':'pk_live_51U4chy6xlGS0fY1JMnj2JuWlu92cPvf7dfaW7zXPM58QkqZJ8422Zr6mTGPcJiQ4reoLui674vcXo7Z0VQreqE4B00nf7sHHbz',
             'stripe_link':'', 'terms_text':TERMS, 'privacy_text':PRIVACY, 'google_verification':''}
 
 
@@ -135,6 +136,14 @@ def install_community(app, db, auth):
     @bp.get('/support')
     def support():
         return render_template('public_page.html', page='support')
+
+    @bp.get('/donation/thank-you')
+    def donation_thanks():
+        return render_template('donation_thanks.html')
+
+    @bp.get('/donation/embed')
+    def donation_embed():
+        return render_template('donation_embed.html')
 
     @bp.get('/terms')
     def terms():
@@ -216,6 +225,11 @@ def install_community(app, db, auth):
             values={key:request.form.get(key,current.get(key,default)).strip() for key,default in DEFAULTS.items()}
             if len(values['about_name'])>100 or any(len(value)>30000 for value in values.values()):
                 raise ValueError('Keep page text under 30,000 characters and the name under 100.')
+            for key,pattern in [('stripe_buy_button_id',r'buy_btn_[A-Za-z0-9]+'),('stripe_publishable_key',r'pk_(live|test)_[A-Za-z0-9]+')]:
+                if values[key] and not re.fullmatch(pattern,values[key]):
+                    raise ValueError('Enter a valid Stripe buy button ID and publishable key. Never enter a secret key.')
+            if bool(values['stripe_buy_button_id'])!=bool(values['stripe_publishable_key']):
+                raise ValueError('Provide both Stripe embed fields, or clear both to disable the embed.')
             link=values['stripe_link']
             parsed=urlsplit(link)
             if link and (parsed.scheme!='https' or parsed.hostname not in ('buy.stripe.com','donate.stripe.com') or parsed.username or parsed.port or not parsed.path or parsed.path=='/'):
@@ -279,4 +293,6 @@ def install_community(app, db, auth):
 
     from .site_editor import install_site_editor
     install_site_editor(app, bp, db, admin, auth)
+    from .template_editor import install_template_editor
+    install_template_editor(app, bp, db, admin, auth)
     app.register_blueprint(bp)

@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS project_items(project_id INTEGER REFERENCES projects(
 
 def create_app(test_config=None):
     app = Flask(__name__)
-    asset_versions = {name: hashlib.sha256((Path(app.static_folder) / name).read_bytes()).hexdigest()[:12] for name in ('app.css', 'app.js', 'auth.js', 'community.js')}
+    asset_versions = {name: hashlib.sha256((Path(app.static_folder) / name).read_bytes()).hexdigest()[:12] for name in ('app.css', 'app.js', 'auth.js', 'community.js', 'donation.css')}
 
     @app.url_defaults
     def version_static_assets(endpoint, values):
@@ -177,6 +177,11 @@ def create_app(test_config=None):
             response.headers['X-Frame-Options'] = 'SAMEORIGIN'
         response.headers['Referrer-Policy'] = 'same-origin'
         response.headers['Content-Security-Policy'] = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self' https://accounts.google.com; frame-ancestors 'none'"
+        if request.endpoint in ('community.welcome','community.support'):
+            response.headers['Content-Security-Policy'] = response.headers['Content-Security-Policy'].replace("script-src 'self'", "script-src 'self' https://js.stripe.com") + "; frame-src 'self' https://js.stripe.com"
+        if request.endpoint == 'community.donation_embed':
+            response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+            response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self' https://js.stripe.com; frame-src https://js.stripe.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'"
         if request.endpoint == 'labels_pdf':
             response.headers['Content-Security-Policy'] = response.headers['Content-Security-Policy'].replace("frame-ancestors 'none'", "frame-ancestors 'self'")
         if request.endpoint != 'static':

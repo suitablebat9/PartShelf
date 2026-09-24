@@ -7,7 +7,7 @@ from flask import abort, flash, redirect, render_template, request, url_for
 
 PAGES={'welcome':('Welcome','welcome.html'), 'about':('About','public_page.html'),
        'support':('Donations','public_page.html'), 'terms':('Terms','public_page.html'),
-       'privacy':('Privacy','public_page.html')}
+       'privacy':('Privacy','public_page.html'), 'donation_thanks':('Donation thank-you','donation_thanks.html')}
 STATES=('Planned','In progress','Released')
 
 class PublicHTML(HTMLParser):
