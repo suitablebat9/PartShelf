@@ -112,5 +112,6 @@ def test_alert_timer_restarts_even_when_backup_fails(monkeypatch):
     with pytest.raises(RuntimeError):
         with service_utils.paused_alerts():
             raise RuntimeError('backup failed')
-    assert calls[1]==['systemctl','stop','partshelf-alerts.timer','partshelf-alerts.service']
-    assert calls[-1]==['systemctl','start','partshelf-alerts.timer']
+    for name in ('partshelf-alerts','partshelf-demo-reset'):
+        assert ['systemctl','stop',name+'.timer',name+'.service'] in calls
+        assert ['systemctl','start',name+'.timer'] in calls

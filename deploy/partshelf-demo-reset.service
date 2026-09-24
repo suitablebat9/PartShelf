@@ -1,0 +1,17 @@
+[Unit]
+Description=Reset expired Partshelf demo data
+
+[Service]
+Type=oneshot
+User=partshelf
+Group=partshelf
+WorkingDirectory=/opt/partshelf/current
+Environment=INVENTORY_DATA=/var/lib/partshelf
+EnvironmentFile=-/etc/partshelf.env
+ExecStart=/opt/partshelf/current/.venv/bin/flask --app inventory:create_app reset-demo
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/partshelf

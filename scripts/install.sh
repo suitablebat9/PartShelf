@@ -23,7 +23,9 @@ nginx -t
 printf '\nCreate your inventory login (password: at least 8 characters).\n'
 cd /opt/partshelf/current
 runuser -u partshelf -- env INVENTORY_DATA=/var/lib/partshelf .venv/bin/flask --app wsgi create-user
+install -m 644 /opt/partshelf/current/deploy/partshelf-demo-reset.service /etc/systemd/system/partshelf-demo-reset.service
+install -m 644 /opt/partshelf/current/deploy/partshelf-demo-reset.timer /etc/systemd/system/partshelf-demo-reset.timer
 systemctl daemon-reload
-systemctl enable --now partshelf nginx
+systemctl enable --now partshelf nginx partshelf-demo-reset.timer
 systemctl reload nginx
 printf '\nReady. Open http://YOUR_LXC_IP on your LAN.\n'

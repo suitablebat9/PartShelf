@@ -43,6 +43,7 @@ def create_app(test_config=None):
                       SESSION_COOKIE_SECURE=os.environ.get('COOKIE_SECURE') == '1')
     app.config.update(PUBLIC_URL=os.environ.get('PUBLIC_URL', '').rstrip('/'),
                       GOOGLE_CLIENT_ID=os.environ.get('GOOGLE_CLIENT_ID', ''), GOOGLE_CLIENT_SECRET=os.environ.get('GOOGLE_CLIENT_SECRET', ''),
+                      TRUST_CLOUDFLARE_COUNTRY=os.environ.get('TRUST_CLOUDFLARE_COUNTRY') == '1',
                       SMTP_HOST=os.environ.get('SMTP_HOST', ''), SMTP_PORT=int(os.environ.get('SMTP_PORT', '587')),
                       SMTP_USERNAME=os.environ.get('SMTP_USERNAME', ''), SMTP_PASSWORD=os.environ.get('SMTP_PASSWORD', ''),
                       MAIL_FROM=os.environ.get('MAIL_FROM', 'no-reply@pcb-studios.com'))
@@ -94,6 +95,8 @@ def create_app(test_config=None):
 
     from .demo import install_demo
     demo = install_demo(app, SCHEMA)
+    from .analytics import install_attribution
+    install_attribution(app)
 
     @app.teardown_appcontext
     def close_db(error=None):
@@ -154,9 +157,9 @@ def create_app(test_config=None):
         if g.user and request.method == 'POST' and request.endpoint in inventory_writes:
             if sum(len(value.encode('utf-8')) for _, value in request.form.items(multi=True)) > 65536:
                 raise ValueError('Keep the text fields in one submission under 64 KB.')
-            path = Path(app.config['DATABASE']) if g.workspace['id'] == 1 else workspace_directory(app, g.workspace['id'])/'inventory.db'
+            path = demo['path'] if g.demo else Path(app.config['DATABASE']) if g.workspace['id'] == 1 else workspace_directory(app, g.workspace['id'])/'inventory.db'
             size = sum(candidate.stat().st_size for candidate in (path, Path(str(path)+'-wal')) if candidate.exists())
-            if request.endpoint in ('edit_component', 'storage', 'projects', 'project') and size > int(os.environ.get('WORKSPACE_DATABASE_LIMIT_MB', '256')) * 1024 * 1024:
+            if request.endpoint in ('edit_component', 'storage', 'projects', 'project') and size > (20 if g.demo else int(os.environ.get('WORKSPACE_DATABASE_LIMIT_MB', '256'))) * 1024 * 1024:
                 raise ValueError('Your workspace database capacity has been reached. Contact support.')
         if g.user and g.user['role'] == 'viewer' and (request.method == 'POST' and request.endpoint in inventory_writes or request.method == 'GET' and request.endpoint == 'edit_component'):
             abort(403, 'Your workspace role is read-only.')
@@ -302,7 +305,7 @@ def create_app(test_config=None):
             raise ValueError('Datasheet uploads must be PDF files.')
         name = secrets.token_hex(16) + ext
         upload_root = workspace_directory(app, g.workspace['id']) / 'uploads'
-        if sum(p.stat().st_size for p in upload_root.iterdir() if p.is_file()) + len(raw) > int(os.environ.get('WORKSPACE_UPLOAD_LIMIT_MB', '1024')) * 1024 * 1024:
+        if sum(p.stat().st_size for p in upload_root.iterdir() if p.is_file()) + len(raw) > (25 if g.demo else int(os.environ.get('WORKSPACE_UPLOAD_LIMIT_MB', '1024'))) * 1024 * 1024:
             raise ValueError('Your workspace upload storage limit has been reached. Contact support.')
         (upload_root / name).write_bytes(raw)
         return '/uploads/' + name
@@ -393,7 +396,7 @@ def create_app(test_config=None):
                     tag_id = one('SELECT id FROM tags WHERE name=?', (tag,))['id']
                     db().execute('INSERT INTO component_tags(component_id,tag_id) VALUES(?,?)', (item_id, tag_id))
             if delta:
-                db().execute('INSERT INTO movements(component_id,delta,reason) VALUES(?,?,?)', (item_id, delta, 'Component saved by ' + session['user']))
+                db().execute('INSERT INTO movements(component_id,delta,reason) VALUES(?,?,?)', (item_id, delta, 'Component saved by ' + g.user['username']))
             db().commit()
             flash('Component saved.')
             return redirect(url_for('component', item_id=item_id))

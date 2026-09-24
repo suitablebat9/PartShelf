@@ -1,4 +1,4 @@
-"""Keep background notification writes out of data backups and release switches."""
+"""Keep background writes out of data backups and release switches."""
 from contextlib import contextmanager
 from pathlib import Path
 import subprocess
@@ -6,12 +6,12 @@ import subprocess
 
 @contextmanager
 def paused_alerts():
-    installed = Path('/etc/systemd/system/partshelf-alerts.timer').exists()
-    active = installed and subprocess.run(['systemctl','is-active','--quiet','partshelf-alerts.timer']).returncode == 0
+    installed=[name for name in ('partshelf-alerts','partshelf-demo-reset') if Path('/etc/systemd/system/'+name+'.timer').exists()]
+    active=[name for name in installed if subprocess.run(['systemctl','is-active','--quiet',name+'.timer']).returncode==0]
     try:
-        if installed:
-            subprocess.run(['systemctl','stop','partshelf-alerts.timer','partshelf-alerts.service'],check=True)
+        for name in installed:
+            subprocess.run(['systemctl','stop',name+'.timer',name+'.service'],check=True)
         yield
     finally:
-        if active:
-            subprocess.run(['systemctl','start','partshelf-alerts.timer'],check=True)
+        for name in active:
+            subprocess.run(['systemctl','start',name+'.timer'],check=True)

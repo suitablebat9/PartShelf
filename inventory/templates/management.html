@@ -1,6 +1,6 @@
 {% extends 'base.html' %}{% block content %}
 {% macro token() %}<input type="hidden" name="csrf" value="{{ csrf() }}">{% endmacro %}
-<header><div><span class="eyebrow">PCB STUDIOS / PLATFORM ADMINISTRATION</span><h1>Client management</h1><p class="muted">Manage workspace access and staff. Each client’s inventory stays in its own workspace.</p></div></header>
+<header><div><span class="eyebrow">PCB STUDIOS / PLATFORM ADMINISTRATION</span><h1>Client management</h1><p class="muted">Manage workspace access and staff. Each client’s inventory stays in its own workspace.</p></div><a class="button secondary" href="/management/analytics">View analytics</a></header>
 <div class="management-grid">
 <section class="panel"><h2>Public registration</h2><p>Email delivery: {{ 'Configured' if mail_ready else 'Not configured — public signup requires working email' }}.</p><form method="post" action="/management/registration">{{ token() }}<label class="check-label"><input type="checkbox" name="enabled" {{ 'checked' if registration_open }}>Allow verified self-service registration</label><button>Save registration setting</button></form><p><a href="/register">Registration page</a></p></section>
 <section class="panel"><h2>Create a client workspace</h2><p>Create it here, then invite its owner.</p><form method="post" action="/management/workspaces">{{ token() }}<label>Workspace name<input name="name" maxlength="100" required></label><button>Create workspace</button></form></section>

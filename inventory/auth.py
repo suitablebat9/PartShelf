@@ -22,6 +22,7 @@ from webauthn import generate_registration_options, generate_authentication_opti
 from webauthn.helpers import bytes_to_base64url, base64url_to_bytes
 from webauthn.helpers.structs import AuthenticatorSelectionCriteria, ResidentKeyRequirement, UserVerificationRequirement, PublicKeyCredentialDescriptor
 from .mailer import mail_ready, send_email
+from .analytics import record_signup
 from werkzeug.exceptions import Forbidden
 
 
@@ -127,6 +128,7 @@ def install_auth(app, db):
             db().execute('DELETE FROM auth_sessions WHERE token_hash=?', (digest(session['sid']),))
         token = secrets.token_urlsafe(32)
         now = int(time.time())
+        db().execute('UPDATE users SET last_login=CURRENT_TIMESTAMP WHERE id=?',(user['id'],))
         db().execute('DELETE FROM auth_sessions WHERE expires<?', (now,))
         db().execute('INSERT INTO auth_sessions VALUES(?,?,?,?,?)', (digest(token), user['id'], now+(30*86400 if remember else 12*3600), now, int(remember)))
         db().commit()
@@ -503,6 +505,7 @@ def install_auth(app, db):
                     wid=db().execute('INSERT INTO workspaces(name) VALUES(?)',(name+"’s workspace",)).lastrowid
                     initialize_inventory(app,wid)
                     uid=db().execute("INSERT INTO users(username,password,email,email_verified,google_sub,workspace_id,role) VALUES(?,'',?,1,?,?,'owner')",(username,email,identity['sub'],wid)).lastrowid
+                    record_signup(db(),uid,'Google')
                     db().execute("INSERT INTO management_audit(actor_id,workspace_id,action,detail) VALUES(?,?,'workspace.google_registered','')",(uid,wid))
                     user=db().execute('SELECT * FROM users WHERE id=?',(uid,)).fetchone()
                     flash('Welcome! Your workspace is ready. You can rename it in Team management.')

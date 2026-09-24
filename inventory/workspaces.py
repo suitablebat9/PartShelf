@@ -26,6 +26,8 @@ def migrate_registry(db):
         db.execute('CREATE TABLE IF NOT EXISTS management_audit(id INTEGER PRIMARY KEY,actor_id INTEGER,workspace_id INTEGER,action TEXT NOT NULL,detail TEXT NOT NULL,created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)')
         db.execute('CREATE TABLE IF NOT EXISTS site_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL)')
         db.execute("INSERT OR IGNORE INTO site_settings VALUES('registration_enabled','1')")
+        from .analytics import migrate_analytics
+        migrate_analytics(db)
         db.commit()
     except Exception:
         db.rollback()
@@ -34,6 +36,8 @@ def migrate_registry(db):
 
 def workspace_directory(app, workspace_id):
     workspace_id = int(workspace_id)
+    if workspace_id == 0:
+        return Path(app.config['DATA_DIR']) / 'demo'
     if workspace_id < 1:
         raise ValueError('Invalid workspace.')
     root = Path(app.config['DATA_DIR'])

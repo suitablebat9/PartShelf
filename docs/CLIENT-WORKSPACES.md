@@ -60,4 +60,22 @@ Application throttling uses the direct request source plus per-account/email lim
 
 ## Public demo
 
-`/demo` provides prefilled demo credentials and opens a separate, read-only sample inventory. It creates no registry users or workspaces. Visitors can search components, inspect project budgets/storage, and preview or print labels. Account, management, uploads, exports and all inventory mutations are blocked server-side; the demo database is opened read-only. Exiting restores the visitor’s prior signed-in session if present.
+`/demo` provides prefilled credentials and a shared, editable sample inventory. Visitors can create/edit parts, upload sample files, adjust stock, build projects, and print labels. Changes are visible to other visitors, so the UI asks visitors to use sample information only. Demo accounts cannot access account settings, administration, analytics or exports. It creates no registry users or workspaces and never accesses a client's inventory.
+
+The separate demo database and uploads reset after 48 hours. A cross-process lock serializes demo operations and resets; expired data resets before the next request is served. Stale forms are rejected after a reset. The hourly `partshelf-demo-reset.timer` also resets expired data when there is no traffic. The UI shows the next reset time in UTC. Limits: 500 component types, 100 projects/storage areas, 20 MB database, 25 MB uploads, and 120 writes per request source per hour (shared behind the default local proxy).
+
+For existing installs run `python3 /opt/partshelf/current/scripts/setup_integrations.py` after updating to install the timer. Fresh installations install it automatically. `flask --app inventory:create_app reset-demo` checks expiry without forcing an early reset.
+
+## Self-service deletion
+
+Non-platform users can delete their own account from Account & security after recent authentication and typing their exact username. The last active owner must first assign another owner or delete the workspace. Owners can delete their own workspace from Team management by typing its exact name. Members/admins cannot delete a workspace, and the platform administration workspace is protected. All affected sessions/challenges/invitations are revoked.
+
+These operations use the existing recoverable Trash system: access is removed immediately, while records and inventory remain available for platform-admin restoration. They do not promise permanent erasure. No scheduled purge is performed.
+
+## Private analytics
+
+Only platform administrators can open `/management/analytics`. It shows workspace creation dates, member/component-type/project counts, user creation and last-sign-in times, signup methods, first-touch referral/campaign sources, and approximate signup country. The demo is excluded. User rows paginate in groups of 100; unavailable inventory counts are marked rather than silently reported as zero.
+
+Historical user signup dates and attribution that were never recorded remain **Not recorded**. New signup attribution captures only external referral hostname (not paths/query strings), bounded `utm_source`, `utm_medium`, `utm_campaign`, and optional country. It never sends this information to a third-party analytics service or stores raw IP addresses for analytics. Attribution is descriptive, not an access-control signal.
+
+Country capture is opt-in: only use `python3 /opt/partshelf/current/scripts/setup_integrations.py --cloudflare-country` on an origin protected by Cloudflare. This sets `TRUST_CLOUDFLARE_COUNTRY=1` and accepts the approximate `CF-IPCountry` header. Enable Cloudflare Network → IP Geolocation if the header is absent. Restrict direct origin access or strip client-supplied country headers on non-Cloudflare ingress; the application cannot authenticate arbitrary headers. Without the setting/header, country stays unrecorded. See [Cloudflare IP Geolocation](https://developers.cloudflare.com/network/ip-geolocation/).
