@@ -18,7 +18,7 @@
 <section class="panel"><h2>Specifications</h2><div class="form-grid">
 {% for key,title,example in [('size','Size / package','0603, DIP-8, 10 × 20 mm'),('resistance','Resistance','10 kΩ'),('capacitance','Capacitance','100 nF'),('voltage','Voltage','16 V'),('tolerance','Tolerance','1%')] %}
 <label>{{ title }}<input name="{{ key }}" value="{{ item.get(key,'') }}" placeholder="{{ example }}"></label>{% endfor %}
-<label class="wide">Other specifications<input name="attributes" value="{{ item.get('attributes','') }}" placeholder="e.g. inductance: 10 µH; power: 0.25 W; material: aluminum"></label>
+<label class="wide">Other<input name="attributes" value="{{ item.get('attributes','') }}" placeholder="e.g. inductance: 10 µH; power: 0.25 W; material: aluminum"></label>
 </div><p class="hint">Search or filter by any of these values. Include units consistently, such as kΩ, nF, or mm.</p></section>
 <section class="panel"><h2>Stock & purchase pricing</h2><div class="form-grid">
 <label>Current stock<input id="stock" name="stock" type="number" step="any" min="0" required value="{{ item.get('stock',0)|qty }}"></label>

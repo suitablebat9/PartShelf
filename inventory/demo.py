@@ -128,7 +128,7 @@ def install_demo(app, schema):
                 session.pop('demo',None)
                 session.pop('demo_generation',None)
             return
-        allowed={'index','component','edit_component','adjust_stock','storage','projects','project','add_to_project','consume','labels','labels_pdf','code_image','upload'}
+        allowed={'index','component','edit_component','adjust_stock','storage','projects','project','add_to_project','consume','labels','label_help','labels_pdf','code_image','upload'}
         g.demo=True
         g.user={'id':0,'username':'demo','workspace_id':0,'role':'member','platform_admin':0}
         g.workspace={'id':0,'name':'Partshelf demo'}

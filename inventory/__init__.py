@@ -139,6 +139,10 @@ def create_app(test_config=None):
     app.jinja_env.filters['money'] = lambda v: f'{Decimal(str(v)):,.2f}'
     app.jinja_env.filters['qty'] = lambda v: f'{float(v):g}'
 
+    @app.get('/labels/help')
+    def label_help():
+        return render_template('label_help.html')
+
     @app.before_request
     def protect():
         if request.endpoint == 'static':
@@ -154,6 +158,8 @@ def create_app(test_config=None):
         if request.method == 'POST' and not secrets.compare_digest(session.get('csrf', ''), request.headers.get('X-CSRF-Token', request.form.get('csrf', '!'))):
             abort(400, 'Invalid form token. Reload the page and try again.')
         if request.endpoint not in PUBLIC_ENDPOINTS and request.endpoint not in ('login', 'static', 'demo', 'demo_exit', 'auth.mfa_login', 'auth.google_login', 'auth.google_callback', 'auth.passkey_options', 'auth.passkey_verify', 'manage.register', 'manage.verify_registration', 'manage.google_registration', 'manage.accept_invite', 'manage.forgot_password', 'manage.reset_password') and not g.user:
+            if request.method == 'GET' and request.endpoint:
+                session['login_destination'] = request.full_path.rstrip('?')
             return redirect(url_for('community.welcome') if request.path=='/' else url_for('login'))
         inventory_writes = ('edit_component', 'adjust_stock', 'storage', 'projects', 'project', 'add_to_project', 'consume')
         if g.user and request.method == 'POST' and request.endpoint in inventory_writes:

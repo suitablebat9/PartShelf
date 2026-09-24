@@ -136,6 +136,13 @@ def install_auth(app, db):
         session.update(sid=token, user=user['username'], csrf=secrets.token_hex(32))
         session.permanent = bool(remember)
 
+    def return_path(value, fallback='/account'):
+        # Redirect only to local application paths, including after OAuth/MFA.
+        if not isinstance(value, str) or not value.startswith('/') or value.startswith('//') or '\\' in value or any(ord(c)<32 for c in value):
+            return fallback
+        parsed = urlsplit(value)
+        return value if not parsed.scheme and not parsed.netloc else fallback
+
     def recent(view):
         @wraps(view)
         def wrapped(*args, **kwargs):
@@ -144,7 +151,7 @@ def install_auth(app, db):
             if not g.auth_session or g.auth_session['authenticated'] < time.time()-600:
                 if request.is_json:
                     return jsonify(error='Sign in again from Account settings before changing security settings.'), 403
-                flash('Sign in again to change security settings. Your remembered login can stay enabled.')
+                session['reauth_destination'] = return_path(request.full_path.rstrip('?') if request.method=='GET' else request.referrer.removeprefix(request.host_url.rstrip('/')) if request.referrer and request.referrer.startswith(request.host_url) else '/account')
                 return redirect(url_for('auth.reauthenticate'))
             return view(*args, **kwargs)
         return wrapped
@@ -166,7 +173,8 @@ def install_auth(app, db):
     def recovery_valid(user, code):
         return db().execute('DELETE FROM recovery_codes WHERE user_id=? AND code_hash=?', (user['id'], digest(code.replace('-', '').strip().lower()))).rowcount == 1
 
-    def start_login(user, remember=False, destination='/'):
+    def start_login(user, remember=False, destination=None):
+        destination = return_path(destination if destination is not None else session.get('login_destination'), '/')
         user = user_by_id(user['id'])
         if user['mfa_method']:
             payload = dict(remember=bool(remember), destination=destination)
@@ -239,9 +247,13 @@ def install_auth(app, db):
         if request.method=='POST':
             limit('reauth:'+str(g.user['id']))
             if check_password_hash(g.user['password'], request.form.get('password','')):
-                return start_login(g.user, bool(g.auth_session['remember']), '/account')
+                return start_login(g.user, bool(g.auth_session['remember']), return_path(session.get('reauth_destination')))
             flash('Incorrect password.', 'error')
         return render_template('reauthenticate.html')
+
+    @bp.get('/settings')
+    def settings():
+        return render_template('settings.html')
 
     @bp.get('/account')
     def account():
@@ -446,7 +458,7 @@ def install_auth(app, db):
         if not g.user or not g.user['google_sub'] or not google_ready():
             abort(403)
         limit('reauth:'+str(g.user['id']))
-        challenge('google_flow',g.user['id'],{'mode':'reauth','sid':digest(session['sid']),'remember':bool(g.auth_session['remember'])})
+        challenge('google_flow',g.user['id'],{'mode':'reauth','sid':digest(session['sid']),'remember':bool(g.auth_session['remember']),'destination':return_path(session.get('reauth_destination'))})
         return google.authorize_redirect(origin()+'/auth/google/callback',prompt='select_account')
 
     @bp.post('/account/google/link')
@@ -478,7 +490,7 @@ def install_auth(app, db):
         if pending['payload']['mode']=='reauth':
             if not g.user or pending['user_id']!=g.user['id'] or pending['payload']['sid']!=digest(session.get('sid','')) or identity['sub']!=g.user['google_sub']:
                 raise ValueError('Choose the Google account already linked to this Partshelf account.')
-            return start_login(g.user, pending['payload']['remember'], '/account')
+            return start_login(g.user, pending['payload']['remember'], return_path(pending['payload'].get('destination')))
         email = str(identity.get('email', '')).strip().lower()
         if len(email)>254 or not re.fullmatch(r'[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+', email):
             raise ValueError('Google did not return a valid verified email.')

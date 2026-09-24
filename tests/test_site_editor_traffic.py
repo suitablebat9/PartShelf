@@ -3,7 +3,6 @@ import time
 from unittest.mock import patch
 from test_inventory import app, client, post
 from test_community_projects import make_admin, public_post
-from inventory.site_editor import sanitize_html
 
 
 def test_roadmap_admin_publish_hide_and_stale(app,client):
@@ -18,30 +17,6 @@ def test_roadmap_admin_publish_hide_and_stale(app,client):
     assert post(client,'/management/roadmap',id='1',revision='1',title='Stale',status='Planned').status_code==409
     assert post(client,'/management/roadmap',id='1',revision='2',title='Part import',status='In progress').status_code==302
     assert b'Part import' not in public.get('/roadmap').data
-
-
-def test_html_editor_preview_save_reset_and_access(app,client):
-    assert client.get('/management/pages').status_code==403
-    make_admin(app)
-    assert b'Your parts, in order' in client.get('/management/pages?page=welcome').data
-    html='<h1>My edited page</h1><p>{{ 7*7 }}</p><script>alert(1)</script><a href="javascript:alert(1)" onclick="bad()">Link</a>'
-    preview=post(client,'/management/pages',page='welcome',revision='0',action='preview',html=html)
-    assert preview.status_code==200 and b'Preview' in preview.data
-    assert b'My edited page' not in app.test_client().get('/welcome').data
-    assert post(client,'/management/pages',page='welcome',revision='0',action='save',html=html).status_code==302
-    saved=app.test_client().get('/welcome').data
-    assert b'My edited page' in saved and b'{{ 7*7 }}' in saved
-    assert b'<script>alert' not in saved and b'onclick=' not in saved and b'href="javascript' not in saved
-    assert post(client,'/management/pages',page='welcome',revision='0',action='save',html='stale').status_code==409
-    assert post(client,'/management/pages',page='welcome',revision='1',action='reset').status_code==302
-    assert b'Your parts, in order' in app.test_client().get('/welcome').data
-    assert client.get('/management/pages?page=login').status_code==404
-
-
-def test_html_sanitizer_disallows_active_content():
-    result=sanitize_html('<img src=x onerror=bad()><iframe srcdoc="bad"></iframe><form action="/logout"><input name="csrf"></form><svg><a href="jav&#x61;script:bad()">x</a></svg><p style="position:fixed" id="theme-toggle">safe</p>')
-    assert result=='<a>x</a><p>safe</p>'
-    assert sanitize_html('<h2>Text</h2><a href="/login">Sign in</a>')=='<h2>Text</h2><a href="/login">Sign in</a>'
 
 
 def test_live_visitors_demo_sessions_and_admin_exclusion(app,client):

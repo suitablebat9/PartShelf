@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 {% block content %}
-<header><div><span class="eyebrow">TOOLS / LABEL STUDIO</span><h1>Labels that fit.</h1><p class="muted">Preview one label. Print a whole batch in one PDF.</p></div></header>
+<header><div><span class="eyebrow">TOOLS / LABEL STUDIO</span><h1>Labels that fit.</h1></div></header>
 {% if selected %}
 <form method="post" action="/labels/pdf" class="label-layout" id="label-form">
 <input type="hidden" name="csrf" value="{{ csrf() }}">
@@ -11,16 +11,16 @@
 <fieldset class="label-margins"><legend>Margins (inches)</legend><div class="form-grid">{% for side in ['top','bottom','left','right'] %}<label>{{ side|capitalize }} margin<input name="margin_{{ side }}" type="number" min="0" max="12" step="0.01" value="{{ options['margin_' + side] }}" required></label>{% endfor %}</div></fieldset>
 <label>Code<select name="mode">{% for value,title in [('qr','QR code'),('barcode','Code 128 barcode'),('none','No code')] %}<option value="{{ value }}" {{ 'selected' if options.mode==value }}>{{ title }}</option>{% endfor %}</select></label>
 <label>Text template (blank for no text)<textarea name="text" id="label-text" rows="4" maxlength="1000">{{ options.text }}</textarea></label>
-<p class="hint">Use {name}, {name_id}, {code}, {stock}, {unit}, {size}, {resistance}, {capacitance}, {voltage}, {tolerance}, {supplier}, {category}, {location}, or {tags}. Each label uses its own component’s values.</p>
+<p><a href="/labels/help">Label configuration guide →</a></p>
 <div class="form-grid"><label>Font<select name="font">{% for f in ['sans-serif','serif','monospace'] %}<option {{ 'selected' if options.font==f }}>{{ f }}</option>{% endfor %}</select></label><label>Maximum size (pt)<input name="size" type="number" min="6" max="72" step="0.5" value="{{ options.size }}" required></label></div>
-<p class="hint" id="preview-status" aria-live="polite">Preview updates automatically as you edit. Preview and download use the same PDF layout.</p>
+<p class="hint" id="preview-status" aria-live="polite"></p>
 </section>
 <section>
-<div class="panel"><h2>Single-label preview</h2><iframe class="pdf-preview" name="label-preview" title="Label PDF preview" src="{{ url_for('labels_pdf',item_id=selected.id,render='image',**options) }}"></iframe><p class="hint">PDF pages match your label’s physical size. Print at actual size (100%) with the matching printer stock. Zero margins remove extra code padding; QR codes stay square. Your printer may still have an unprintable border. Test-scan a label first. Fonts support Latin text and common electrical symbols.</p></div>
+<div class="panel"><h2>Single-label preview</h2><iframe class="pdf-preview" name="label-preview" title="Label PDF preview" src="{{ url_for('labels_pdf',item_id=selected.id,render='image',**options) }}"></iframe></div>
 <div class="panel"><h2>Components to print</h2><div class="actions"><button type="button" class="secondary" id="select-all-labels">Select all</button><button type="button" class="secondary" id="clear-labels">Clear selection</button></div>
 <div class="bulk-list">{% for i in items %}<label class="check-label"><input type="checkbox" name="component_ids" value="{{ i.id }}" {{ 'checked' if i.id==selected.id }}><span>{{ i.name }} <small>{{ i.name_id }}</small></span></label>{% endfor %}</div>
 <label>Copies per selected component<input name="copies" type="number" min="1" max="100" step="1" value="{{ options.copies }}" required></label>
-<p id="label-count" class="muted" aria-live="polite"></p><button type="submit">Download selected labels PDF</button><p class="hint">One label per PDF page, up to 1,000 pages in one download. The preview always shows one label.</p>
+<p id="label-count" class="muted" aria-live="polite"></p><button type="submit">Download selected labels PDF</button><p class="hint">One label per PDF page, up to 1,000 pages in one download.</p>
 </div></section>
 </form>
 {% else %}<section class="panel empty"><h2>Add a component first</h2><a class="button" href="/components/new">Add component</a></section>{% endif %}

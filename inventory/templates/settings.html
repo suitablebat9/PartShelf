@@ -1,0 +1,6 @@
+{% extends 'base.html' %}{% block title %}Settings · Partshelf{% endblock %}{% block content %}
+<header><div><span class="eyebrow">PARTSHELF</span><h1>Settings</h1></div></header>
+<div class="settings-grid"><a class="panel settings-card" href="/account"><h2>Account & security</h2><p>Email, password, passkeys, two-step verification and notifications.</p></a>
+{% if g.user.platform_admin or g.user.role in ('owner','admin') %}<a class="panel settings-card" href="/management"><h2>{{ 'Client management' if g.user.platform_admin else 'Team management' }}</h2><p>Workspaces, members and access.</p></a>{% endif %}
+{% if g.user.platform_admin %}<a class="panel settings-card" href="/management/site"><h2>Public site settings</h2><p>About, AI disclosure, no-paywall promise, donations and site policies.</p></a><a class="panel settings-card" href="/management/roadmap"><h2>Roadmap</h2><p>Publish upcoming features and progress.</p></a><a class="panel settings-card" href="/management/feedback"><h2>Feedback inbox</h2><p>Review ideas and share updates.</p></a>{% endif %}</div>
+{% endblock %}

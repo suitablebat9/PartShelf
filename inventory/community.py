@@ -57,7 +57,7 @@ Cloudflare handles access to the hosted service. Google handles Google sign-in w
 
 Storage and choices
 Data is stored on the operator’s server and in backups. Users with permission can export inventory and use account/workspace deletion controls. Administrative recovery copies and backups may retain deleted records. Contact support@pcb-studios.com for privacy questions, correction requests, or permanent deletion requests. Do not upload sensitive information that is unnecessary for inventory management.'''
-DEFAULTS = {'about_name':'Carson', 'about_text':"I'm the creator behind PCBStudios. I’m building Partshelf to make organizing components, planning projects, and finding the right part easier. Your suggestions help shape where it goes next.",
+DEFAULTS = {'no_paywall':PROMISE, 'about_name':'Carson', 'about_text':"I'm the creator behind PCBStudios. I’m building Partshelf to make organizing components, planning projects, and finding the right part easier. Your suggestions help shape where it goes next.",
             'about_ai_heading':'Built with help from AI', 'about_ai_text':'AI tools, including OpenAI’s Codex, helped write code, explore designs, troubleshoot problems, and build features for Partshelf. The project’s direction and the decisions about what to build come from me and the people using it. I’m sharing that openly because I want you to know how the project was made.',
             'stripe_buy_button_id':'buy_btn_1UJFm36xlGS0fY1JvHZYI3ms', 'stripe_publishable_key':'pk_live_51U4chy6xlGS0fY1JMnj2JuWlu92cPvf7dfaW7zXPM58QkqZJ8422Zr6mTGPcJiQ4reoLui674vcXo7Z0VQreqE4B00nf7sHHbz',
             'stripe_link':'', 'terms_text':TERMS, 'privacy_text':PRIVACY, 'google_verification':''}
@@ -110,7 +110,7 @@ def install_community(app, db, auth):
             'community.terms':('Partshelf Terms of Service','Terms for using Partshelf, operated by PCBStudios in Minnesota.'),
             'community.privacy':('Partshelf Privacy Information','How Partshelf handles account, inventory, feedback, and signup information.')}
         title, description = descriptions.get(request.endpoint, ('Partshelf · Inventory','Partshelf by PCBStudios'))
-        return dict(site=values, no_paywall=PROMISE, public_page=request.endpoint in INDEXABLE,
+        return dict(site=values, no_paywall=values['no_paywall'], public_page=request.endpoint in INDEXABLE,
                     seo_title=title, seo_description=description,
                     canonical=app.config['PUBLIC_URL']+request.path if request.endpoint in INDEXABLE else '',
                     seo_schema={'@context':'https://schema.org','@type':'WebApplication','name':'Partshelf',
@@ -291,8 +291,6 @@ def install_community(app, db, auth):
         paths=['/welcome','/about','/support','/feedback','/terms','/privacy','/roadmap']
         return Response('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'+''.join('<url><loc>'+escape(app.config['PUBLIC_URL']+path)+'</loc></url>' for path in paths)+'</urlset>',mimetype='application/xml')
 
-    from .site_editor import install_site_editor
-    install_site_editor(app, bp, db, admin, auth)
-    from .template_editor import install_template_editor
-    install_template_editor(app, bp, db, admin, auth)
+    from .roadmap import install_roadmap
+    install_roadmap(app, bp, db, admin, auth)
     app.register_blueprint(bp)

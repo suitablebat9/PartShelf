@@ -1,6 +1,6 @@
 # Public site, feedback, and project purchasing
 
-Platform administrators can open **Public site settings** from the sidebar to edit the About name, biography, AI section heading and text, Terms of Service, privacy information, and optional Stripe Payment Link. These settings are stored on the server and survive code updates.
+Platform administrators can open **Public site settings** from the gear icon → Settings to edit the About name, biography, AI section heading and text, no-paywall promise, Terms of Service, privacy information, and optional Stripe Payment Link. These settings are stored on the server and survive code updates.
 
 ## Voluntary donations
 
@@ -30,23 +30,15 @@ Click an existing needed quantity to edit it; zero removes it. Use inventory-sty
 
 Open **Public site settings → Edit roadmap** (or the sidebar link). Add a title, description, status, display order, and publication checkbox. Status columns are Planned, In progress, and Released. Lower display-order numbers appear first. Uncheck publication to remove an item from the public page while keeping it available for later editing. The public `/roadmap` page is linked in the footer and included in the sitemap. No future features are promised or seeded automatically.
 
-## Public HTML editor
-
-Open **Public site settings → Edit public page HTML**. The editor supports Welcome, About, Donations, Terms, and Privacy main content. It starts with the current default HTML, supports preview before publication, and provides Restore default content. Scripts, forms, inline styles, embedded pages, image tags, event handlers, and template execution are excluded. Headings, paragraphs, links, lists, tables, and existing site CSS classes are supported. The header, footer, and authenticated app workflows are not replaced.
-
-Custom HTML takes precedence over the corresponding plain-text settings. For example, after customizing About HTML, edits to the biography or AI text settings will not affect that page until default content is restored. Similarly, a custom Donations page must have its Stripe link updated in the HTML. Updates preserve overrides in the database; restoring defaults uses the latest shipped layout and current settings.
-
 ## Visitor analytics
 
 The platform-only Analytics page includes live website and demo browser counts, plus demo visits today, over 30 days, and since tracking began. Live counts use visible-page heartbeats every 30 seconds with a two-minute activity window. Demo is a subset of the website total. A demo visit includes viewing the demo landing page or exploring the demo; it counts once until the browser has been away from demo activity for 30 minutes. Multiple tabs sharing a session are deduplicated. Counts start when this version is installed, not retroactively.
 
 These are approximate sessions, not unique identified people: separate browsers, devices, cleared cookies, and sign-in transitions can create separate sessions. Background tabs stop reporting, so abandoned pages age out. JavaScript blockers and browser privacy settings may reduce counts. Platform administrators, Do Not Track, and Global Privacy Control are excluded. An anonymous random identifier is kept in the existing signed session cookie; visitor records contain no account, email, or raw IP. Activity rows older than a day are pruned during subsequent pulses; daily aggregate demo totals are retained. The admin cards refresh every 15 seconds while visible.
 
-## App template HTML editor
+## Page customization
 
-**Public site settings → Edit app HTML templates** opens `/management/templates`. Select Inventory, Labels (Label studio), account screens, shared Base layout, or another template. Edit the surrounding HTML, headings, descriptions, and button/label text. Existing Jinja expressions/instructions, dynamic attribute contexts, form controls, IDs, data attributes, scripts, and options must remain unchanged; validation rejects changes to these contracts. This is HTML customization, not a way to execute arbitrary Python, JavaScript, or template code.
-
-The preview is static and uses placeholders instead of live account or inventory data. Save publishes across all workspaces. Restore default template restores the shipped version. Editor and settings routes always render the shipped layout for recovery. Public-page content overrides still take priority over their corresponding templates. Template customizations survive restarts and are backed up with the database. When a code update changes the original template, its older override is retained but paused; restore the updated default and reapply desired edits before publishing again.
+The HTML and app template editors have been removed. Legacy overrides remain in the database for recovery but are no longer applied. Edit supported public text in Settings → Public site settings; application layout changes use the Git repository and Python updater.
 
 ## Stripe buy button and thank-you page
 
@@ -56,4 +48,4 @@ Set the Payment Link's **After payment → Redirect** URL in Stripe to:
 
 `https://partshelf.pcb-studios.com/donation/thank-you`
 
-The thank-you page is public, editable in the public HTML editor, and excluded from search indexing. It never treats URL parameters or a visit as payment verification. Payment records and receipts remain in Stripe. No payment is submitted during development checks.
+The thank-you page is public and excluded from search indexing. It never treats URL parameters or a visit as payment verification. Payment records and receipts remain in Stripe. No payment is submitted during development checks.
