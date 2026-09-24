@@ -44,10 +44,14 @@ def test_public_pages_seo_and_private_exclusions(app, client):
 def test_site_settings_admin_only_safe_text_and_stripe(app,client):
     assert client.get('/management/site').status_code==403
     make_admin(app)
-    values=dict(DEFAULTS, about_name='Creator', about_text='<script>bad()</script>', stripe_link='https://donate.stripe.com/example')
+    values=dict(DEFAULTS, about_name='Creator', about_text='<script>bad()</script>', about_ai_heading='How I built it', about_ai_text='<b>Custom AI disclosure</b>\nSecond paragraph.', stripe_link='https://donate.stripe.com/example')
     assert post(client,'/management/site',**values).status_code==302
     page=app.test_client().get('/about')
     assert b'&lt;script&gt;' in page.data and b'<script>bad' not in page.data
+    assert b'How I built it' in page.data and b'&lt;b&gt;Custom AI disclosure&lt;/b&gt;' in page.data
+    assert b'Second paragraph.' in page.data
+    assert post(client,'/management/site',about_name='Updated creator').status_code==302
+    assert b'Custom AI disclosure' in app.test_client().get('/about').data
     assert b'https://donate.stripe.com/example' in app.test_client().get('/support').data
     for link in ('javascript:alert(1)','https://stripe.com.evil.test/pay','https://evil.test/','https://donate.stripe.com@evil.test/a'):
         assert post(client,'/management/site',**dict(values,stripe_link=link)).status_code==400

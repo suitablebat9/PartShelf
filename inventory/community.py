@@ -58,6 +58,7 @@ Cloudflare handles access to the hosted service. Google handles Google sign-in w
 Storage and choices
 Data is stored on the operator’s server and in backups. Users with permission can export inventory and use account/workspace deletion controls. Administrative recovery copies and backups may retain deleted records. Contact support@pcb-studios.com for privacy questions, correction requests, or permanent deletion requests. Do not upload sensitive information that is unnecessary for inventory management.'''
 DEFAULTS = {'about_name':'Carson', 'about_text':"I'm the creator behind PCBStudios. I’m building Partshelf to make organizing components, planning projects, and finding the right part easier. Your suggestions help shape where it goes next.",
+            'about_ai_heading':'Built with help from AI', 'about_ai_text':'AI tools, including OpenAI’s Codex, helped write code, explore designs, troubleshoot problems, and build features for Partshelf. The project’s direction and the decisions about what to build come from me and the people using it. I’m sharing that openly because I want you to know how the project was made.',
             'stripe_link':'', 'terms_text':TERMS, 'privacy_text':PRIVACY, 'google_verification':''}
 
 
@@ -210,7 +211,8 @@ def install_community(app, db, auth):
     @auth['recent']
     def site_admin():
         if request.method=='POST':
-            values={key:request.form.get(key,'').strip() for key in DEFAULTS}
+            current=settings()
+            values={key:request.form.get(key,current.get(key,default)).strip() for key,default in DEFAULTS.items()}
             if len(values['about_name'])>100 or any(len(value)>30000 for value in values.values()):
                 raise ValueError('Keep page text under 30,000 characters and the name under 100.')
             link=values['stripe_link']

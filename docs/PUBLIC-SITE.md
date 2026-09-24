@@ -1,6 +1,6 @@
 # Public site, feedback, and project purchasing
 
-Platform administrators can open **Public site settings** from the sidebar to edit the About name and biography, Terms of Service, privacy information, and optional Stripe Payment Link. These settings are stored on the server and survive code updates.
+Platform administrators can open **Public site settings** from the sidebar to edit the About name, biography, AI section heading and text, Terms of Service, privacy information, and optional Stripe Payment Link. These settings are stored on the server and survive code updates.
 
 ## Voluntary donations
 
