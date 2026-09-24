@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS project_items(project_id INTEGER REFERENCES projects(
 
 def create_app(test_config=None):
     app = Flask(__name__)
-    asset_versions = {name: hashlib.sha256((Path(app.static_folder) / name).read_bytes()).hexdigest()[:12] for name in ('app.css', 'app.js', 'auth.js')}
+    asset_versions = {name: hashlib.sha256((Path(app.static_folder) / name).read_bytes()).hexdigest()[:12] for name in ('app.css', 'app.js', 'auth.js', 'community.js')}
 
     @app.url_defaults
     def version_static_assets(endpoint, values):
@@ -205,6 +205,8 @@ def create_app(test_config=None):
     install_management(app, account_db, auth)
     from .community import install_community
     install_community(app, account_db, auth)
+    from .analytics import install_visit_analytics
+    install_visit_analytics(app, account_db)
     app.add_url_rule('/login', 'login', auth['login'], methods=['GET', 'POST'])
     app.add_url_rule('/logout', 'logout', auth['logout'], methods=['POST'])
 

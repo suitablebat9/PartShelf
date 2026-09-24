@@ -1,0 +1,5 @@
+{% extends 'base.html' %}{% block content %}
+<header><div><span class="eyebrow">PARTSHELF / WHAT’S NEXT</span><h1>Roadmap</h1><p>What’s planned, what’s being built, and what’s ready to use.</p></div><a class="button secondary" href="/feedback">Suggest an idea</a></header>
+<p class="muted">Plans may change as I learn from your feedback. Items here are direction, not promised release dates.</p>
+<div class="public-grid">{% for state in states %}<section class="panel"><h2>{{ state }}</h2>{% for item in items if item.status==state %}<article class="roadmap-item"><h3>{{ item.title }}</h3><div class="prose">{{ item.description }}</div></article>{% else %}<p class="muted">Updates will appear here.</p>{% endfor %}</section>{% endfor %}</div>
+{% endblock %}

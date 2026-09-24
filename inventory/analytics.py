@@ -50,3 +50,62 @@ def inventory_totals(app, workspace_id):
             db.close()
     except sqlite3.Error:
         return {'components':None,'projects':None}
+
+
+def visitor_summary(db):
+    import time
+    from datetime import datetime, timezone, timedelta
+    now=int(time.time())
+    today=datetime.now(timezone.utc).date()
+    live=db.execute('SELECT COUNT(*) AS website,COALESCE(SUM(demo_seen>=?),0) AS demo FROM visitor_activity WHERE seen>=?',(now-120,now-120)).fetchone()
+    totals=db.execute('SELECT COALESCE(SUM(demo_visits),0) AS total,COALESCE(SUM(CASE WHEN day>=? THEN demo_visits ELSE 0 END),0) AS month FROM visitor_daily',((today-timedelta(days=29)).isoformat(),)).fetchone()
+    day=db.execute('SELECT demo_visits FROM visitor_daily WHERE day=?',(today.isoformat(),)).fetchone()
+    return dict(live_website=live['website'],live_demo=live['demo'],demo_total=totals['total'],demo_month=totals['month'],demo_today=day[0] if day else 0)
+
+
+def install_visit_analytics(app, db):
+    import secrets
+    import time
+    from datetime import datetime, timezone
+    with app.app_context():
+        db().executescript('''CREATE TABLE IF NOT EXISTS visitor_activity(
+            visitor TEXT PRIMARY KEY,seen INTEGER NOT NULL,demo_seen INTEGER NOT NULL DEFAULT 0,
+            demo_visit INTEGER NOT NULL DEFAULT 0);
+            CREATE INDEX IF NOT EXISTS visitor_seen ON visitor_activity(seen);
+            CREATE TABLE IF NOT EXISTS visitor_daily(day TEXT PRIMARY KEY,demo_visits INTEGER NOT NULL DEFAULT 0);''')
+        db().commit()
+
+    def excluded():
+        return request.headers.get('DNT')=='1' or request.headers.get('Sec-GPC')=='1' or bool(getattr(g,'user',None) and g.user['platform_admin'])
+
+    @app.context_processor
+    def visitor_context():
+        enabled=not excluded() and request.method=='GET' and request.endpoint not in ('static','community.email_preferences')
+        if enabled and 'visitor_id' not in session:
+            session['visitor_id']=secrets.token_hex(24)
+        return {'track_visits':enabled}
+
+    @app.post('/visitor-pulse')
+    def visitor_pulse():
+        ident=session.get('visitor_id')
+        if excluded() or not ident:
+            return '',204
+        now=int(time.time())
+        demo=request.form.get('mode')=='demo'
+        conn=db()
+        conn.execute('BEGIN IMMEDIATE')
+        row=conn.execute('SELECT * FROM visitor_activity WHERE visitor=?',(ident,)).fetchone()
+        if row and now-row['seen']<20 and (not demo or now-row['demo_seen']<20):
+            conn.rollback()
+            return '',204
+        last_visit=row['demo_visit'] if row else 0
+        new_visit=demo and (not row or now-row['demo_seen']>=1800)
+        if new_visit:
+            last_visit=now
+            day=datetime.fromtimestamp(now,timezone.utc).date().isoformat()
+            conn.execute('INSERT INTO visitor_daily(day,demo_visits) VALUES(?,1) ON CONFLICT(day) DO UPDATE SET demo_visits=demo_visits+1',(day,))
+        conn.execute('INSERT INTO visitor_activity(visitor,seen,demo_seen,demo_visit) VALUES(?,?,?,?) ON CONFLICT(visitor) DO UPDATE SET seen=excluded.seen,demo_seen=excluded.demo_seen,demo_visit=excluded.demo_visit',
+                     (ident,now,now if demo else (row['demo_seen'] if row else 0),last_visit))
+        conn.execute('DELETE FROM visitor_activity WHERE seen<?',(now-86400,))
+        conn.commit()
+        return '',204

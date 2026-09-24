@@ -10,8 +10,8 @@ from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from .mailer import send_email, mail_ready
 
 PUBLIC_ENDPOINTS = {'community.welcome','community.about','community.support','community.terms','community.privacy',
-                    'community.feedback','community.email_preferences','community.robots','community.sitemap'}
-INDEXABLE = {'community.welcome','community.about','community.support','community.terms','community.privacy','community.feedback'}
+                    'community.feedback','community.roadmap','visitor_pulse','community.email_preferences','community.robots','community.sitemap'}
+INDEXABLE = {'community.welcome','community.about','community.support','community.terms','community.privacy','community.feedback','community.roadmap'}
 STATUSES = ('New', 'Reviewing', 'Planned', 'In progress', 'Released', 'Not planned')
 PROMISE = 'I will never lock Partshelf features behind a paywall. Every feature is available without donating. Contributions are optional and help support hosting, maintenance, and development.'
 TERMS = '''Partshelf Terms of Service
@@ -105,6 +105,7 @@ def install_community(app, db, auth):
             'community.about':('About Partshelf and PCBStudios','Meet the creator of Partshelf, learn how AI helped build the project, and read our promise to never paywall features.'),
             'community.support':('Support Partshelf — Optional Donations','Help support Partshelf through optional Stripe contributions. Features will never be locked behind a paywall.'),
             'community.feedback':('Partshelf Feedback and Feature Requests','Share any idea, big or small. Optional verified-email updates keep you informed when a feature is planned or released.'),
+            'community.roadmap':('Partshelf Roadmap — What’s Next','See planned improvements, work in progress, and completed features for Partshelf.'),
             'community.terms':('Partshelf Terms of Service','Terms for using Partshelf, operated by PCBStudios in Minnesota.'),
             'community.privacy':('Partshelf Privacy Information','How Partshelf handles account, inventory, feedback, and signup information.')}
         title, description = descriptions.get(request.endpoint, ('Partshelf · Inventory','Partshelf by PCBStudios'))
@@ -273,7 +274,9 @@ def install_community(app, db, auth):
 
     @bp.get('/sitemap.xml')
     def sitemap():
-        paths=['/welcome','/about','/support','/feedback','/terms','/privacy']
+        paths=['/welcome','/about','/support','/feedback','/terms','/privacy','/roadmap']
         return Response('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'+''.join('<url><loc>'+escape(app.config['PUBLIC_URL']+path)+'</loc></url>' for path in paths)+'</urlset>',mimetype='application/xml')
 
+    from .site_editor import install_site_editor
+    install_site_editor(app, bp, db, admin, auth)
     app.register_blueprint(bp)

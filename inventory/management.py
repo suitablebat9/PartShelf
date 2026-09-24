@@ -8,7 +8,7 @@ from flask import Blueprint, abort, flash, g, redirect, render_template, request
 from werkzeug.security import generate_password_hash
 from .mailer import mail_ready, send_email
 from .workspaces import initialize_inventory
-from .analytics import record_signup, inventory_totals
+from .analytics import record_signup, inventory_totals, visitor_summary
 
 ROLES = ('owner', 'admin', 'member', 'viewer')
 
@@ -173,7 +173,12 @@ def install_management(app, db, auth):
         sources=db().execute("SELECT COALESCE(signup_source,'Not recorded') AS source,COUNT(*) AS total FROM users WHERE deleted_at IS NULL GROUP BY source ORDER BY total DESC").fetchall()
         countries=db().execute("SELECT COALESCE(signup_country,'Not recorded') AS country,COUNT(*) AS total FROM users WHERE deleted_at IS NULL GROUP BY country ORDER BY total DESC").fetchall()
         trend=db().execute("SELECT date(created) AS day,COUNT(*) AS total FROM users WHERE created>=datetime('now','-30 days') GROUP BY day ORDER BY day DESC").fetchall()
-        return render_template('analytics.html',workspaces=workspaces,users=users,summary=summary,sources=sources,countries=countries,trend=trend,page=page,has_next=db().execute('SELECT COUNT(*) FROM users').fetchone()[0]>page*100)
+        return render_template('analytics.html',traffic=visitor_summary(db()),workspaces=workspaces,users=users,summary=summary,sources=sources,countries=countries,trend=trend,page=page,has_next=db().execute('SELECT COUNT(*) FROM users').fetchone()[0]>page*100)
+
+    @bp.get('/management/analytics/live')
+    @platform
+    def live_analytics():
+        return visitor_summary(db())
 
     @bp.post('/account/delete')
     @auth['recent']
