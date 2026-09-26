@@ -1,5 +1,5 @@
 const savedTheme=localStorage.getItem('partshelf-theme');
-document.body.dataset.theme=savedTheme||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+document.body.dataset.theme=savedTheme||'light';
 document.querySelector('#theme-toggle')?.addEventListener('click',()=>{const theme=document.body.dataset.theme==='dark'?'light':'dark';document.body.dataset.theme=theme;localStorage.setItem('partshelf-theme',theme)});
 let dirty=false;document.addEventListener('input',()=>{dirty=true});
 if(document.querySelector('[data-auto-refresh]'))setInterval(()=>{if(!dirty&&!document.hidden&&!['INPUT','SELECT','TEXTAREA'].includes(document.activeElement.tagName))location.reload()},20000);
@@ -127,7 +127,7 @@ document.querySelector('#label-preset')?.addEventListener('change',e=>{if(e.targ
 const labelForm=document.querySelector('#label-form');
 if(labelForm){
   const checkboxes=[...labelForm.querySelectorAll('[name="component_ids"]')];
-  function countLabels(){const count=checkboxes.filter(c=>c.checked).length;document.querySelector('#label-count').textContent=`${count} components · ${count*Number(labelForm.elements.copies.value||0)} labels`}
+  function countLabels(){const count=checkboxes.filter(c=>c.checked).length;document.querySelector('#label-count').textContent=`${count} ${count===1?'component':'components'} · ${count*Number(labelForm.elements.copies.value||0)} ${count*Number(labelForm.elements.copies.value||0)===1?'label':'labels'}`}
   document.querySelector('#select-all-labels').addEventListener('click',()=>{checkboxes.forEach(c=>c.checked=true);countLabels()});
   document.querySelector('#clear-labels').addEventListener('click',()=>{checkboxes.forEach(c=>c.checked=false);countLabels()});
   const previewFrame=labelForm.querySelector('iframe'),status=document.querySelector('#preview-status');
@@ -139,7 +139,7 @@ if(labelForm){
     try{
       const response=await fetch('/labels/pdf?preview=1&render=image',{method:'POST',body,signal:controller.signal});
       const html=await response.text();if(version!==revision)return;
-      previewFrame.srcdoc=html;status.textContent=response.ok?'Preview is up to date.':'Preview could not be generated. Check the message below.';
+      previewFrame.srcdoc=html;status.textContent=response.ok?'':'Preview could not be generated. Check the message below.';
     }catch(error){if(error.name!=='AbortError'&&version===revision)status.textContent='Could not update preview. Check your connection and try again.'}
   }
   function schedulePreview(immediate=false){clearTimeout(timer);controller?.abort();const version=++revision;status.textContent='Updating preview…';timer=setTimeout(()=>updatePreview(version),immediate?0:400)}

@@ -1,10 +1,10 @@
 {% extends 'base.html' %}
 {% block content %}
-<header><div><span class="eyebrow">TOOLS / LABEL STUDIO</span><h1>Labels that fit.</h1></div></header>
+<header><div><h1>Label studio</h1></div></header>
 {% if selected %}
 <form method="post" action="/labels/pdf" class="label-layout" id="label-form">
 <input type="hidden" name="csrf" value="{{ csrf() }}">
-<section class="panel"><h2>Shared label layout</h2>
+<section class="panel"><h2>Label settings</h2>
 <label>Preview component<select name="item_id" id="label-component">{% for i in items %}<option value="{{ i.id }}" {{ 'selected' if i.id==selected.id }}>{{ i.name }} · {{ i.name_id }}</option>{% endfor %}</select></label>
 <label>Preset<select id="label-preset"><option value="">Custom size</option><option value="3.5,1.5">3.5 × 1.5 in</option><option value="2.25,1.25">2.25 × 1.25 in</option><option value="4,2">4 × 2 in</option><option value="3,1">3 × 1 in (landscape)</option><option value="1,3">1 × 3 in (portrait)</option><option value="1,1">1 × 1 in</option></select></label>
 <div class="form-grid"><label>Width (in)<input name="width" id="label-width" type="number" min="0.5" max="12" step="0.01" value="{{ options.width }}" required></label><label>Height (in)<input name="height" id="label-height" type="number" min="0.5" max="12" step="0.01" value="{{ options.height }}" required></label></div>
@@ -16,11 +16,11 @@
 <p class="hint" id="preview-status" aria-live="polite"></p>
 </section>
 <section>
-<div class="panel"><h2>Single-label preview</h2><iframe class="pdf-preview" name="label-preview" title="Label PDF preview" src="{{ url_for('labels_pdf',item_id=selected.id,render='image',**options) }}"></iframe></div>
+<div class="panel"><h2>Preview</h2><iframe class="pdf-preview" name="label-preview" title="Label PDF preview" src="{{ url_for('labels_pdf',item_id=selected.id,render='image',**options) }}"></iframe></div>
 <div class="panel"><h2>Components to print</h2><div class="actions"><button type="button" class="secondary" id="select-all-labels">Select all</button><button type="button" class="secondary" id="clear-labels">Clear selection</button></div>
 <div class="bulk-list">{% for i in items %}<label class="check-label"><input type="checkbox" name="component_ids" value="{{ i.id }}" {{ 'checked' if i.id==selected.id }}><span>{{ i.name }} <small>{{ i.name_id }}</small></span></label>{% endfor %}</div>
 <label>Copies per selected component<input name="copies" type="number" min="1" max="100" step="1" value="{{ options.copies }}" required></label>
-<p id="label-count" class="muted" aria-live="polite"></p><button type="submit">Download selected labels PDF</button><p class="hint">One label per PDF page, up to 1,000 pages in one download.</p>
+<p id="label-count" class="muted" aria-live="polite"></p><button type="submit">Download selected labels PDF</button>
 </div></section>
 </form>
 {% else %}<section class="panel empty"><h2>Add a component first</h2><a class="button" href="/components/new">Add component</a></section>{% endif %}
