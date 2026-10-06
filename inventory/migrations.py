@@ -19,6 +19,8 @@ def migrate(connection):
         connection.execute('CREATE INDEX IF NOT EXISTS component_tags_tag ON component_tags(tag_id,component_id)')
         from .security_schema import migrate_security
         migrate_security(connection)
+        from .drawers import migrate_drawers
+        migrate_drawers(connection)
         connection.commit()
     except Exception:
         connection.rollback()

@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS project_items(project_id INTEGER REFERENCES projects(
 
 def create_app(test_config=None):
     app = Flask(__name__)
-    asset_versions = {name: hashlib.sha256((Path(app.static_folder) / name).read_bytes()).hexdigest()[:12] for name in ('app.css', 'app.js', 'auth.js', 'community.js', 'donation.css')}
+    asset_versions = {name: hashlib.sha256((Path(app.static_folder) / name).read_bytes()).hexdigest()[:12] for name in ('app.css', 'app.js', 'auth.js', 'community.js', 'donation.css', 'layout.css', 'drawers.css', 'drawers.js')}
 
     @app.url_defaults
     def version_static_assets(endpoint, values):
@@ -211,6 +211,8 @@ def create_app(test_config=None):
         g.user = g.workspace = None
         return render_template('suspended.html', workspace=error.workspace), 403
     auth = install_auth(app, account_db)
+    from .drawers import install_drawers
+    install_drawers(app, db)
     app.extensions['inventory_db'] = db
     from .management import install_management
     install_management(app, account_db, auth)
@@ -428,7 +430,7 @@ def create_app(test_config=None):
 
     @app.get('/components/<int:item_id>')
     def component(item_id):
-        return render_template('component.html', projects=rows('SELECT id,name FROM projects ORDER BY name'), tags=rows('SELECT t.name FROM tags t JOIN component_tags ct ON ct.tag_id=t.id WHERE ct.component_id=? ORDER BY t.name', (item_id,)), item=one('SELECT c.*,cat.name AS category,l.name AS location FROM components c LEFT JOIN categories cat ON cat.id=c.category_id LEFT JOIN locations l ON l.id=c.location_id WHERE c.id=?', (item_id,)), movements=rows('SELECT * FROM movements WHERE component_id=? ORDER BY id DESC LIMIT 50', (item_id,)))
+        return render_template('component.html', drawer=db().execute('SELECT d.* FROM cabinet_drawers d JOIN components c ON c.location_id=d.location_id WHERE c.id=?',(item_id,)).fetchone(), projects=rows('SELECT id,name FROM projects ORDER BY name'), tags=rows('SELECT t.name FROM tags t JOIN component_tags ct ON ct.tag_id=t.id WHERE ct.component_id=? ORDER BY t.name', (item_id,)), item=one('SELECT c.*,cat.name AS category,l.name AS location FROM components c LEFT JOIN categories cat ON cat.id=c.category_id LEFT JOIN locations l ON l.id=c.location_id WHERE c.id=?', (item_id,)), movements=rows('SELECT * FROM movements WHERE component_id=? ORDER BY id DESC LIMIT 50', (item_id,)))
 
     @app.post('/components/<int:item_id>/project')
     def add_to_project(item_id):
