@@ -49,6 +49,10 @@ def test_update_rollback_preserves_data_symlink(tmp_path, monkeypatch):
     def run(*args, **kwargs):
         if 'archive' in args:
             archive_to(kwargs['stdout'])
+        if 'venv' in args:
+            environment = Path(args[-1])
+            (environment / 'bin').mkdir(parents=True)
+            (environment / 'bin/python').touch()
     monkeypatch.setattr(update, 'run', run)
     def fail_health(*args, **kwargs):
         (data/'inventory.db').write_text('failed migration')

@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from werkzeug.security import generate_password_hash
+from password_fixtures import generate_password_hash
 from inventory import create_app, SCHEMA
 from inventory.workspaces import initialize_inventory, connect_inventory, workspace_directory
 from test_inventory import app, client, part, post

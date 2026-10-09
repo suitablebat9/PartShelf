@@ -5,7 +5,7 @@ from unittest.mock import patch
 from test_inventory import app, client, post, part
 from test_auth import form
 from test_workspaces import tenant, make_platform, authenticated
-from werkzeug.security import generate_password_hash
+from password_fixtures import generate_password_hash
 
 
 def test_login_with_username_or_email_case_insensitive(app):

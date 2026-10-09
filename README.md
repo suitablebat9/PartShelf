@@ -28,7 +28,7 @@ A self-hosted inventory system for workshops and client teams, with separate cli
 - CSRF protection, authenticated uploads, server-side sign-in throttling, and Nginx login rate limiting.
 
 **[Set up Google sign-in, passkeys, 2FA, email and public HTTPS →](docs/ACCOUNTS-EMAIL.md)**
-- Python updater with independent release environments, preflight tests, data backup, health check and automatic rollback. Inventory files and credentials never go to GitHub.
+- Python updater with cached dependency environments, preflight tests, data backup, health check and automatic rollback. Inventory files and credentials never go to GitHub.
 
 ## Local development (Python 3.10–3.14)
 
@@ -55,7 +55,7 @@ After changes have been committed to `main` in your repository:
 python3 /opt/partshelf/current/scripts/update.py
 ```
 
-Run as root **inside the LXC**. The updater fetches `origin/main` into a new release, installs pinned dependencies, runs tests, stops the service briefly, copies data into a protected backup, switches releases, starts the app and checks `/login`. A failed startup restores the old release and data. Previous releases/backups remain in `/opt/partshelf`; periodically archive/remove old ones after verifying a separate backup. Failed preflight releases can also be removed manually.
+Run as root **inside the LXC**. The updater fetches `origin/main` into a new release, reuses a complete dependency environment when the requirements and Python version match (otherwise installs pinned dependencies), runs the full test suite, stops the service briefly, copies data into a protected backup, switches releases, starts the app and checks `/login`. A failed startup restores the old release and data. Previous releases/backups remain in `/opt/partshelf`; periodically archive/remove old ones after verifying a separate backup. Failed preflight releases can also be removed manually.
 
 The updater deploys changes you have made and pushed to GitHub; it does not invent code changes. Server configuration changes to systemd/Nginx need explicit application as described in the setup guide. It intentionally does not overwrite system configuration during routine app updates.
 
@@ -91,3 +91,5 @@ tests/                     Functional tests
 Designed for self-hosted client workspaces with individual logins and role-based permissions. Public signup requires HTTPS, secure cookies and configured email verification. See [client operations](docs/CLIENT-WORKSPACES.md) for limits and deployment scope. No offline editing, accounting/tax engine, per-location stock splits, currency conversion, reservations, or automatic supplier imports.
 
 Use server-side backups for recovery. GitHub stores source only, not inventory data. See the setup guide for backup, restore, adding users, and troubleshooting.
+
+Updates already at the active commit exit without restarting. Disposable test databases use RAM-backed `/dev/shm` when available; live inventory and backups stay on persistent storage. Use `--disk-tests` to keep test files on disk, or `--force` to redeploy the active commit. Dependency environments live in `/opt/partshelf/environments`; do not remove an environment referenced by a retained release’s `.venv` symlink. The first update builds the cache; later code-only updates reuse it.

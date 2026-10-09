@@ -41,6 +41,10 @@ def test_preflight_failure_keeps_current_release(tmp_path, monkeypatch):
         calls.append(args)
         if 'archive' in args:
             archive_to(kwargs['stdout'])
+        if 'venv' in args:
+            environment = Path(args[-1])
+            (environment / 'bin').mkdir(parents=True)
+            (environment / 'bin/python').touch()
         if 'pytest' in args:
             raise subprocess.CalledProcessError(1, args)
     monkeypatch.setattr(update, 'run', run)
@@ -115,3 +119,73 @@ def test_alert_timer_restarts_even_when_backup_fails(monkeypatch):
     for name in ('partshelf-alerts','partshelf-demo-reset'):
         assert ['systemctl','stop',name+'.timer',name+'.service'] in calls
         assert ['systemctl','start',name+'.timer'] in calls
+
+
+def test_environment_reuse_and_dependency_change(tmp_path, monkeypatch):
+    calls = []
+    def run(*args, **kwargs):
+        calls.append(args)
+        if 'venv' in args:
+            env = Path(args[-1])
+            (env/'bin').mkdir(parents=True)
+            (env/'bin/python').touch()
+    monkeypatch.setattr(update, 'run', run)
+    releases = [tmp_path/name for name in ('one', 'two', 'three')]
+    for release in releases:
+        release.mkdir()
+        (release/'requirements-dev.txt').write_text('pytest==8.0.0')
+    first = update.prepare_environment(tmp_path, releases[0])
+    assert update.prepare_environment(tmp_path, releases[1]) == first
+    assert sum('install' in call for call in calls) == 1
+    (releases[2]/'requirements-dev.txt').write_text('pytest==8.1.0')
+    assert update.prepare_environment(tmp_path, releases[2]) != first
+    assert Path(first).exists()
+    assert sum('install' in call for call in calls) == 2
+
+
+def test_failed_environment_is_not_reused(tmp_path, monkeypatch):
+    release = tmp_path/'release'
+    release.mkdir()
+    calls = []
+    def run(*args, **kwargs):
+        calls.append(args)
+        if 'venv' in args:
+            env = Path(args[-1])
+            (env/'bin').mkdir(parents=True)
+            (env/'bin/python').touch()
+        if 'install' in args:
+            raise subprocess.CalledProcessError(1, args)
+    monkeypatch.setattr(update, 'run', run)
+    for _ in range(2):
+        with pytest.raises(subprocess.CalledProcessError):
+            update.prepare_environment(tmp_path, release)
+    assert sum('venv' in call for call in calls) == 2
+    assert not list((tmp_path/'environments').glob('*/.complete'))
+    assert not (release/'.venv').exists()
+
+
+def test_current_commit_exits_without_restart(tmp_path, monkeypatch):
+    (tmp_path/'current').mkdir()
+    (tmp_path/'current'/'.release-sha').write_text('abc123\n')
+    monkeypatch.setattr(sys, 'argv', ['update.py', '--root', str(tmp_path)])
+    monkeypatch.setattr(update.os, 'geteuid', lambda: 0)
+    monkeypatch.setattr(update.subprocess, 'check_output', lambda *a, **k: 'abc123\n')
+    calls = []
+    monkeypatch.setattr(update, 'run', lambda *a, **k: calls.append(a))
+    with patch.object(update, 'open', return_value=io.StringIO(), create=True), patch('fcntl.flock'):
+        update.main()
+    assert len(calls) == 1 and 'fetch' in calls[0]
+    assert not (tmp_path/'releases').exists()
+
+
+def test_test_data_is_temporary_and_full_suite_runs(tmp_path, monkeypatch):
+    paths = []
+    def run(*args, **kwargs):
+        assert args[:4] == ('python', '-m', 'pytest', '-q')
+        assert kwargs['cwd'] == tmp_path
+        scratch = Path(args[-1]).parent
+        assert scratch.is_dir()
+        paths.append(scratch)
+    monkeypatch.setattr(update, 'run', run)
+    update.test_release('python', tmp_path, disk_tests=True)
+    assert paths and not paths[0].exists()

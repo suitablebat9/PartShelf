@@ -1,7 +1,7 @@
 import io
 import sqlite3
 import pytest
-from werkzeug.security import generate_password_hash
+from password_fixtures import generate_password_hash
 from inventory import create_app
 
 
