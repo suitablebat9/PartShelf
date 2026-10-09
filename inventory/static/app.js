@@ -34,7 +34,7 @@ if(purchaseQty){
   unitPrice.addEventListener('input',()=>{priceMode.value='unit';prices()});
   purchaseTotal.addEventListener('input',()=>{priceMode.value='purchase';prices()});
   priceMode.addEventListener('change',prices);
-  document.querySelector('#stock').addEventListener('input',e=>{if(document.querySelector('#component-form').dataset.new==='true'&&!manualQuantity){purchaseQty.value=e.target.value;prices()}});
+  document.querySelector('#stock').addEventListener('input',e=>{if(document.querySelector('#component-form').dataset.new==='true'&&!manualQuantity){purchaseQty.value=Number(e.target.value)>0?e.target.value:'';prices()}});
   prices();
 }
 const componentForm=document.querySelector('#component-form');
@@ -98,6 +98,15 @@ document.querySelectorAll('.facet-search').forEach(input=>input.addEventListener
 }));
 const filterForm=document.querySelector('#inventory-filters');
 if(filterForm){
+  function renderFilterChips(){
+    const chips=document.querySelector('#active-filters');chips.replaceChildren();
+    [...filterForm.elements].filter(el=>el.name&&el.value&&(!['checkbox','radio'].includes(el.type)||el.checked)&&!['sort','location_scope'].includes(el.name)).forEach(el=>{
+      const button=document.createElement('button');button.type='button';button.className='secondary filter-chip';
+      const value=el.tagName==='SELECT'?el.selectedOptions[0].textContent:el.value;
+      button.textContent=value+' ×';button.setAttribute('aria-label','Remove filter '+value);
+      button.addEventListener('click',()=>{if(el.type==='checkbox')el.checked=false;else el.value='';scheduleFilters();renderFilterChips()});chips.append(button);
+    });
+  }
   const status=document.querySelector('#filter-status'),results=document.querySelector('#inventory-results');
   let timer,controller,revision=0;
   async function applyFilters(version){
@@ -115,20 +124,21 @@ if(filterForm){
         const match=choices.find(c=>c.name===input.name&&c.value===input.value);
         if(match){input.disabled=match.disabled;const count=input.closest('label').querySelector('small');if(count)count.textContent=match.closest('label').querySelector('small').textContent}
       });
-      history.replaceState(null,'',url);status.textContent='';results.removeAttribute('aria-busy');
+      history.replaceState(null,'',url);renderFilterChips();status.textContent='';results.removeAttribute('aria-busy');
     }catch(error){if(error.name!=='AbortError'&&version===revision){status.textContent='Could not update filters. Change a selection or press Search to retry.';results.removeAttribute('aria-busy')}}
   }
   function scheduleFilters(){clearTimeout(timer);controller?.abort();const version=++revision;status.textContent='Updating results…';results.setAttribute('aria-busy','true');timer=setTimeout(()=>applyFilters(version),250)}
   filterForm.addEventListener('change',e=>{if(e.target.name)scheduleFilters()});
   filterForm.querySelector('[name="q"]').addEventListener('input',scheduleFilters);
   filterForm.addEventListener('submit',e=>{e.preventDefault();scheduleFilters()});
+  renderFilterChips();
 }
-document.querySelector('#label-preset')?.addEventListener('change',e=>{if(e.target.value){const [w,h]=e.target.value.split(',');document.querySelector('#label-width').value=w;document.querySelector('#label-height').value=h}});
+document.querySelector('#label-preset')?.addEventListener('change',e=>{if(e.target.value){const [w,h]=e.target.value.split(',');document.querySelector('#label-width').value=w;document.querySelector('#label-height').value=h;if(document.querySelector('#label-unit')?.value==='mm'){document.querySelector('#label-width').value=Number(w)*25.4;document.querySelector('#label-height').value=Number(h)*25.4}}});
 const labelForm=document.querySelector('#label-form');
 if(labelForm){
   const checkboxes=[...labelForm.querySelectorAll('[name="component_ids"]')];
   function countLabels(){const count=checkboxes.filter(c=>c.checked).length;document.querySelector('#label-count').textContent=`${count} ${count===1?'component':'components'} · ${count*Number(labelForm.elements.copies.value||0)} ${count*Number(labelForm.elements.copies.value||0)===1?'label':'labels'}`}
-  document.querySelector('#select-all-labels').addEventListener('click',()=>{checkboxes.forEach(c=>c.checked=true);countLabels()});
+  document.querySelector('#select-all-labels').addEventListener('click',()=>{checkboxes.filter(c=>!c.closest('label').hidden).forEach(c=>c.checked=true);countLabels()});
   document.querySelector('#clear-labels').addEventListener('click',()=>{checkboxes.forEach(c=>c.checked=false);countLabels()});
   const previewFrame=labelForm.querySelector('iframe'),status=document.querySelector('#preview-status');
   let timer,controller,revision=0;
@@ -159,3 +169,31 @@ settingsForm?.querySelectorAll('[data-move]').forEach(button=>button.addEventLis
 
 const fixedFooter=document.querySelector('footer');
 if(fixedFooter)new ResizeObserver(()=>document.documentElement.style.setProperty('--footer-height',fixedFooter.offsetHeight+'px')).observe(fixedFooter);
+
+// Open a collapsed optional section when native validation finds an error.
+document.addEventListener('invalid',e=>{let section=e.target.closest('details');while(section){section.open=true;section=section.parentElement.closest('details')}},true);
+document.querySelectorAll('[data-show-password]').forEach(toggle=>toggle.addEventListener('change',()=>toggle.closest('form').querySelectorAll('[name=password],[name=password_confirm]').forEach(input=>input.type=toggle.checked?'text':'password')));
+document.querySelectorAll('[data-local-time]').forEach(el=>{const date=new Date(el.dateTime.replace(' ','T'));if(!Number.isNaN(date.getTime()))el.textContent=new Intl.DateTimeFormat(undefined,{dateStyle:'medium',timeStyle:'long'}).format(date)});
+const storageSearch=document.querySelector('#storage-search');
+storageSearch?.addEventListener('input',()=>{const q=storageSearch.value.toLocaleLowerCase().trim();document.querySelectorAll('.storage-node').forEach(node=>{node.hidden=!node.dataset.storagePath.includes(q)&&![...node.querySelectorAll('.storage-node')].some(child=>child.dataset.storagePath.includes(q));if(q)node.querySelectorAll('details:not(.storage-edit)').forEach(d=>d.open=true)})});
+const buildForm=document.querySelector('#build-form');
+if(buildForm){
+ const count=buildForm.elements.build_count,parts=[...buildForm.querySelectorAll('[data-build-part]')],status=document.querySelector('#build-readiness'),button=buildForm.querySelector('button');
+ function updateBuild(){const n=Number(count.value),missing=[];parts.forEach(row=>{const required=Number(row.dataset.quantity)*n,shortage=Math.max(0,required-Number(row.dataset.stock));row.textContent=`${required.toLocaleString()} ${row.dataset.unit} · ${row.dataset.name}`;row.classList.toggle('low-stock',shortage>0);if(shortage)missing.push(`${shortage.toLocaleString()} ${row.dataset.unit} of ${row.dataset.name}`)});button.disabled=!count.checkValidity()||!count.value||missing.length>0;status.textContent=missing.length?'Cannot build yet: missing '+missing.join(', '):button.disabled?'Choose a valid build quantity.':'Ready to build.';return !button.disabled}
+ count.addEventListener('input',updateBuild);buildForm.addEventListener('submit',e=>{if(!updateBuild()||!confirm('Deduct these parts?\n'+parts.map(row=>row.textContent).join('\n')))e.preventDefault()});
+}
+if(labelForm){
+ const unit=document.querySelector('#label-unit'),dimensions=[...labelForm.querySelectorAll('[name=width],[name=height],[name^=margin_]')];let previousUnit='in';
+ unit.addEventListener('change',()=>{const factor=unit.value==='mm'?25.4:1/25.4;if(unit.value!==previousUnit)dimensions.forEach(input=>{input.value=Number((Number(input.value)*factor).toFixed(6));input.min=Number(input.min)*factor;input.max=Number(input.max)*factor;input.step='any'});previousUnit=unit.value;document.querySelectorAll('[data-dimension-unit]').forEach(el=>el.textContent=unit.value);labelForm.dispatchEvent(new Event('input',{bubbles:true}))});
+ const text=document.querySelector('#label-text');
+ document.querySelector('#label-field').addEventListener('change',e=>{if(e.target.value){text.setRangeText(e.target.value,text.selectionStart,text.selectionEnd,'end');e.target.value='';text.focus();text.dispatchEvent(new Event('input',{bubbles:true}))}});
+ document.querySelector('#label-starter').addEventListener('change',e=>{if(e.target.value){text.value=e.target.value;text.dispatchEvent(new Event('input',{bubbles:true}))}});
+ const search=document.querySelector('#label-search'),category=document.querySelector('#label-category');
+ function filterLabels(){const query=search.value.trim().toLocaleLowerCase();labelForm.querySelectorAll('.bulk-list label').forEach(row=>row.hidden=!row.textContent.toLocaleLowerCase().includes(query)||(category.value&&row.dataset.labelCategory!==category.value))}
+ search.addEventListener('input',filterLabels);category.addEventListener('change',filterLabels);
+ function encoded(){const option=document.querySelector('#label-component').selectedOptions[0];document.querySelector('#encoded-value').textContent=labelForm.elements.mode.value==='none'?'No code · '+option.textContent:'Encoded value: '+option.dataset.code+' · '+option.textContent}
+ document.querySelector('#label-component').addEventListener('change',encoded);labelForm.elements.mode.addEventListener('change',encoded);encoded();
+}
+
+const addProjectForm=document.querySelector('#add-project-form');
+if(addProjectForm){function projectQuantity(){const current=Number(addProjectForm.elements.project_id.selectedOptions[0].dataset.quantity),added=Number(addProjectForm.elements.quantity.value);document.querySelector('#project-quantity-result').textContent=`Currently ${current.toLocaleString()} required → ${(current+added).toLocaleString()} after adding.`}addProjectForm.addEventListener('input',projectQuantity);addProjectForm.addEventListener('change',projectQuantity);projectQuantity()}

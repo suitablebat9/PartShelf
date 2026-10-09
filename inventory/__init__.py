@@ -1,4 +1,5 @@
 import io
+import json
 import base64
 import hashlib
 import os
@@ -161,7 +162,7 @@ def create_app(test_config=None):
             if request.method == 'GET' and request.endpoint:
                 session['login_destination'] = request.full_path.rstrip('?')
             return redirect(url_for('community.welcome') if request.path=='/' else url_for('login'))
-        inventory_writes = ('delete_component', 'edit_component', 'adjust_stock', 'storage', 'projects', 'project', 'add_to_project', 'consume')
+        inventory_writes = ('delete_component', 'edit_component', 'adjust_stock', 'storage', 'projects', 'project', 'add_to_project', 'consume', 'undo_build')
         if g.user and request.method == 'POST' and request.endpoint in inventory_writes:
             if sum(len(value.encode('utf-8')) for _, value in request.form.items(multi=True)) > 65536:
                 raise ValueError('Keep the text fields in one submission under 64 KB.')
@@ -174,7 +175,7 @@ def create_app(test_config=None):
 
     @app.after_request
     def headers(response):
-        if getattr(g, 'user', None) and getattr(g, 'workspace', None) and request.method == 'POST' and response.status_code < 400 and request.endpoint in ('edit_component', 'adjust_stock', 'consume'):
+        if getattr(g, 'user', None) and getattr(g, 'workspace', None) and request.method == 'POST' and response.status_code < 400 and request.endpoint in ('edit_component', 'adjust_stock', 'consume', 'undo_build'):
             db().execute('DELETE FROM stock_alerts WHERE component_id IN (SELECT id FROM components WHERE low_stock IS NULL OR stock>CAST(low_stock AS REAL))')
             db().commit()
         response.headers['X-Content-Type-Options'] = 'nosniff'
@@ -259,10 +260,16 @@ def create_app(test_config=None):
         if q:
             clauses.append('(' + ' OR '.join('c.' + field + ' LIKE ?' for field in ('name', 'name_id', 'description', 'code', 'attributes', 'size', 'resistance', 'capacitance', 'voltage', 'tolerance')) + ' OR EXISTS (SELECT 1 FROM component_tags ct JOIN tags t ON t.id=ct.tag_id WHERE ct.component_id=c.id AND t.name LIKE ?))')
             params.extend(['%' + q + '%'] * 11)
-        for field in ('category_id', 'location_id'):
+        for field in ('category_id',):
             if request.args.get(field):
                 clauses.append('c.' + field + '=?')
                 params.append(request.args[field])
+        if request.args.get('location_id'):
+            if request.args.get('location_scope') == 'only':
+                clauses.append('c.location_id=?')
+            else:
+                clauses.append('c.location_id IN (WITH RECURSIVE descendants(id) AS (SELECT id FROM locations WHERE id=? UNION SELECT l.id FROM locations l JOIN descendants d ON l.parent_id=d.id) SELECT id FROM descendants)')
+            params.append(request.args['location_id'])
         for field in ('size', 'resistance', 'capacitance', 'voltage', 'tolerance', 'attributes'):
             if request.args.get(field, '').strip():
                 clauses.append('c.' + field + ' LIKE ?')
@@ -284,6 +291,10 @@ def create_app(test_config=None):
             clauses.append('c.stock>0')
         elif request.args.get('stock') == 'out':
             clauses.append('c.stock=0')
+        elif request.args.get('stock') == 'low':
+            clauses.append('c.low_stock IS NOT NULL AND c.stock<=CAST(c.low_stock AS REAL)')
+        elif request.args.get('stock') == 'restock':
+            clauses.append('(c.stock=0 OR (c.low_stock IS NOT NULL AND c.stock<=CAST(c.low_stock AS REAL)))')
         facets = {}
         for field in facet_fields:
             other_clauses, other_params = list(clauses), list(params)
@@ -300,8 +311,8 @@ def create_app(test_config=None):
         sort = {'name': 'c.name COLLATE NOCASE', 'stock_asc': 'c.stock', 'stock_desc': 'c.stock DESC', 'price': 'CAST(c.unit_price AS REAL)', 'new': 'c.id DESC'}.get(request.args.get('sort'), 'c.name COLLATE NOCASE')
         query = 'SELECT c.*,cat.name AS category,l.name AS location FROM components c LEFT JOIN categories cat ON cat.id=c.category_id LEFT JOIN locations l ON l.id=c.location_id'
         items = rows(query + (' WHERE ' + ' AND '.join(clauses) if clauses else '') + ' ORDER BY ' + sort, params)
-        all_items = rows('SELECT stock,unit_price FROM components')
-        return dict(storage_count=db().execute('SELECT COUNT(*) FROM locations WHERE id NOT IN (SELECT location_id FROM cabinet_drawers)').fetchone()[0], items=items, facets=facets, tags=rows('SELECT * FROM tags ORDER BY name'), categories=rows('SELECT * FROM categories ORDER BY name'), locations=location_options(), suppliers=rows("SELECT DISTINCT supplier FROM components WHERE supplier!='' ORDER BY supplier"), total=len(all_items), empty=sum(r['stock']==0 for r in all_items), value=sum(Decimal(str(r['stock']))*Decimal(r['unit_price']) for r in all_items))
+        all_items = rows('SELECT stock,unit_price,low_stock FROM components')
+        return dict(low=sum(r['low_stock'] is not None and r['stock']<=float(r['low_stock']) for r in all_items), storage_count=db().execute('SELECT COUNT(*) FROM locations WHERE id NOT IN (SELECT location_id FROM cabinet_drawers)').fetchone()[0], items=items, facets=facets, tags=rows('SELECT * FROM tags ORDER BY name'), categories=rows('SELECT * FROM categories ORDER BY name'), locations=location_options(), suppliers=rows("SELECT DISTINCT supplier FROM components WHERE supplier!='' ORDER BY supplier"), total=len(all_items), empty=sum(r['stock']==0 for r in all_items), value=sum(Decimal(str(r['stock']))*Decimal(r['unit_price']) for r in all_items))
 
     @app.get('/')
     @app.get('/search')
@@ -349,7 +360,7 @@ def create_app(test_config=None):
             if mode not in ('unit', 'purchase'):
                 raise ValueError('Choose unit price or total purchase price.')
             quantity_input = f.get('purchase_quantity', '').strip()
-            quantity = number(quantity_input) if quantity_input else (number(item['purchase_quantity']) if item.get('purchase_quantity') else (stock if not item_id else None))
+            quantity = number(quantity_input) if quantity_input else (number(item['purchase_quantity']) if item.get('purchase_quantity') else (stock if not item_id and stock>0 else None))
             if quantity is not None and quantity <= 0:
                 raise ValueError('Original purchase quantity must be greater than zero; it is separate from remaining stock.')
             if mode == 'purchase':
@@ -431,7 +442,11 @@ def create_app(test_config=None):
 
     @app.get('/components/<int:item_id>')
     def component(item_id):
-        return render_template('component.html', drawer=db().execute('SELECT d.* FROM cabinet_drawers d JOIN components c ON c.location_id=d.location_id WHERE c.id=?',(item_id,)).fetchone(), projects=rows('SELECT id,name FROM projects ORDER BY name'), tags=rows('SELECT t.name FROM tags t JOIN component_tags ct ON ct.tag_id=t.id WHERE ct.component_id=? ORDER BY t.name', (item_id,)), item=one('SELECT c.*,cat.name AS category,l.name AS location FROM components c LEFT JOIN categories cat ON cat.id=c.category_id LEFT JOIN locations l ON l.id=c.location_id WHERE c.id=?', (item_id,)), movements=rows('SELECT * FROM movements WHERE component_id=? ORDER BY id DESC LIMIT 50', (item_id,)))
+        back = request.args.get('back', '/')
+        parsed = urlsplit(back)
+        if parsed.scheme or parsed.netloc or parsed.path not in ('/', '/search') or '\\' in back:
+            back = '/'
+        return render_template('component.html', back=back, location_paths={l['id']:l['path'] for l in location_options()}, drawer=db().execute('SELECT d.* FROM cabinet_drawers d JOIN components c ON c.location_id=d.location_id WHERE c.id=?',(item_id,)).fetchone(), projects=rows('SELECT p.id,p.name,COALESCE(i.quantity,0) AS current_quantity FROM projects p LEFT JOIN project_items i ON i.project_id=p.id AND i.component_id=? ORDER BY p.name',(item_id,)), tags=rows('SELECT t.name FROM tags t JOIN component_tags ct ON ct.tag_id=t.id WHERE ct.component_id=? ORDER BY t.name', (item_id,)), item=one('SELECT c.*,cat.name AS category,l.name AS location FROM components c LEFT JOIN categories cat ON cat.id=c.category_id LEFT JOIN locations l ON l.id=c.location_id WHERE c.id=?', (item_id,)), movements=rows('SELECT * FROM movements WHERE component_id=? ORDER BY id DESC LIMIT 50', (item_id,)))
 
     @app.route('/components/<int:item_id>/delete', methods=['GET', 'POST'])
     def delete_component(item_id):
@@ -447,6 +462,12 @@ def create_app(test_config=None):
                 abort(409, 'This component changed. Reload the confirmation page before deleting it.')
             for table in ('stock_alerts', 'component_tags', 'project_items', 'movements'):
                 db().execute('DELETE FROM '+table+' WHERE component_id=?', (item_id,))
+            for build in rows('SELECT id,parts FROM project_builds WHERE undone=0'):
+                parts = json.loads(build['parts'])
+                for part in parts:
+                    if part['id'] == item_id:
+                        part['deleted'] = True
+                db().execute('UPDATE project_builds SET parts=? WHERE id=?',(json.dumps(parts),build['id']))
             db().execute('DELETE FROM components WHERE id=?', (item_id,))
             db().commit()
             flash('Component deleted.')
@@ -480,16 +501,41 @@ def create_app(test_config=None):
     @app.route('/storage', methods=['GET', 'POST'])
     def storage():
         if request.method == 'POST':
+            db().execute('BEGIN IMMEDIATE')
             name = request.form.get('name', '').strip()
             if not name:
                 raise ValueError('Storage name is required.')
             kind = request.form.get('kind')
             if kind not in ('Room', 'Closet', 'Cabinet', 'Drawer', 'Shelf', 'Bin', 'Other'):
                 raise ValueError('Choose a storage type.')
-            db().execute('INSERT INTO locations(name,kind,parent_id) VALUES(?,?,?)', (name, kind, request.form.get('parent_id') or None))
+            parent = request.form.get('parent_id') or None
+            if parent:
+                one('SELECT id FROM locations WHERE id=?', (parent,))
+            editing = request.form.get('location_id')
+            if editing:
+                one('SELECT id FROM locations WHERE id=?', (editing,))
+                if db().execute('SELECT 1 FROM cabinet_drawers WHERE location_id=? UNION SELECT 1 FROM cabinets WHERE location_id=?',(editing,editing)).fetchone():
+                    raise ValueError('Edit organizer locations from the organizer page.')
+                descendants = {str(r['id']) for r in rows('WITH RECURSIVE tree(id) AS (SELECT id FROM locations WHERE id=? UNION SELECT l.id FROM locations l JOIN tree t ON l.parent_id=t.id) SELECT id FROM tree',(editing,))}
+                if parent in descendants:
+                    raise ValueError('A storage area cannot be moved inside itself or its children.')
+                db().execute('UPDATE locations SET name=?,kind=?,parent_id=? WHERE id=?',(name,kind,parent,editing))
+            else:
+                db().execute('INSERT INTO locations(name,kind,parent_id) VALUES(?,?,?)', (name, kind, parent))
             db().commit()
             return redirect(url_for('storage'))
-        return render_template('storage.html', locations=[l for l in location_options() if not db().execute('SELECT 1 FROM cabinet_drawers WHERE location_id=?',(l['id'],)).fetchone()], organizers={c['location_id']:dict(c) for c in rows('SELECT * FROM cabinets')})
+        all_locations = location_options()
+        counts = {r['location_id']:r['n'] for r in rows('SELECT location_id,COUNT(*) AS n FROM components GROUP BY location_id')}
+        by_id = {l['id']:l for l in all_locations}
+        totals = {l['id']:counts.get(l['id'],0) for l in all_locations}
+        for location in all_locations:
+            parent = location['parent_id']
+            while parent:
+                totals[parent] += counts.get(location['id'],0)
+                parent = by_id[parent]['parent_id']
+        hidden = {r['location_id'] for r in rows('SELECT location_id FROM cabinet_drawers')}
+        locations = [dict(l, count=totals[l['id']]) for l in all_locations if l['id'] not in hidden]
+        return render_template('storage.html', locations=locations, organizers={c['location_id']:dict(c) for c in rows('SELECT * FROM cabinets')})
 
     @app.route('/projects', methods=['GET', 'POST'])
     def projects():
@@ -520,6 +566,7 @@ def create_app(test_config=None):
             else:
                 db().execute('INSERT INTO project_items(project_id,component_id,quantity) VALUES(?,?,?) ON CONFLICT(project_id,component_id) DO UPDATE SET quantity=excluded.quantity', (project_id, request.form['component_id'], float(quantity)))
             db().commit()
+            flash('Required quantity updated.' if quantity else 'Component removed from project.')
             return redirect(url_for('project', project_id=project_id))
         items = [dict(r) for r in rows('SELECT c.*,i.quantity FROM project_items i JOIN components c ON c.id=i.component_id WHERE i.project_id=? ORDER BY c.name', (project_id,))]
         for row in items:
@@ -534,30 +581,61 @@ def create_app(test_config=None):
         components = search.pop('items')
         for key in ('total','empty','value'):
             search.pop(key)
-        return render_template('project.html', project=project, items=items, components=components,
+        return render_template('project.html', builds=rows('SELECT * FROM project_builds WHERE project_id=? ORDER BY id DESC LIMIT 20',(project_id,)), can_build=bool(items) and not any(r['shortage'] for r in items), project=project, items=items, components=components,
             needed={r['id']:r['quantity'] for r in items}, total=sum(r['cost'] for r in items), buy=sum(r['buy_cost'] for r in items),
             package_buy=sum(r['package_cost'] for r in items), filter_action=url_for('project',project_id=project_id), **search)
 
     @app.post('/projects/<int:project_id>/consume')
     def consume(project_id):
+        count = number(request.form.get('build_count', '1'))
+        if count < 1 or count > 10000 or count != count.to_integral_value():
+            raise ValueError('Choose a whole number of builds from 1 to 10,000.')
         db().execute('BEGIN IMMEDIATE')
         one('SELECT id FROM projects WHERE id=?', (project_id,))
-        items = rows('SELECT c.id,c.stock,i.quantity FROM project_items i JOIN components c ON c.id=i.component_id WHERE project_id=?', (project_id,))
-        if not items or any(r['stock'] < r['quantity'] for r in items):
-            raise ValueError('Every project part must be in stock before building.')
+        items = rows('SELECT c.id,c.name,c.stock,i.quantity FROM project_items i JOIN components c ON c.id=i.component_id WHERE project_id=?', (project_id,))
+        missing = [f"{float(Decimal(str(r['quantity']))*count-Decimal(str(r['stock']))):g} × {r['name']}" for r in items if Decimal(str(r['stock'])) < Decimal(str(r['quantity']))*count]
+        if not items or missing:
+            db().rollback()
+            flash('Cannot build yet: missing ' + ', '.join(missing) if missing else 'Add components before building.', 'error')
+            return redirect(url_for('project', project_id=project_id))
+        snapshot = []
         for row in items:
-            db().execute('UPDATE components SET stock=stock-?,version=version+1 WHERE id=?', (row['quantity'], row['id']))
-            db().execute('INSERT INTO movements(component_id,delta,reason) VALUES(?,?,?)', (row['id'], -row['quantity'], 'Built project #' + str(project_id)))
+            quantity = float(Decimal(str(row['quantity']))*count)
+            db().execute('UPDATE components SET stock=stock-?,version=version+1 WHERE id=?', (quantity, row['id']))
+            db().execute('INSERT INTO movements(component_id,delta,reason) VALUES(?,?,?)', (row['id'], -quantity, 'Built project #' + str(project_id)))
+            snapshot.append(dict(id=row['id'],name=row['name'],quantity=quantity))
+        db().execute('INSERT INTO project_builds(project_id,build_count,parts) VALUES(?,?,?)',(project_id,int(count),json.dumps(snapshot)))
         db().commit()
-        flash('Parts deducted for one build. The project list is saved for reuse.')
+        flash(f'Parts deducted for {int(count)} build(s). The project list is saved for reuse.')
         return redirect(url_for('project', project_id=project_id))
+
+    @app.post('/projects/<int:project_id>/builds/<int:build_id>/undo')
+    def undo_build(project_id, build_id):
+        db().execute('BEGIN IMMEDIATE')
+        build = one('SELECT * FROM project_builds WHERE id=? AND project_id=?',(build_id,project_id))
+        if build['undone']:
+            db().rollback()
+            flash('This build has already been undone.')
+        else:
+            parts = json.loads(build['parts'])
+            if any(p.get('deleted') or not db().execute('SELECT 1 FROM components WHERE id=?',(p['id'],)).fetchone() for p in parts):
+                db().rollback()
+                flash('Cannot undo: a component from this build was deleted.', 'error')
+            else:
+                for part in parts:
+                    db().execute('UPDATE components SET stock=stock+?,version=version+1 WHERE id=?',(part['quantity'],part['id']))
+                    db().execute('INSERT INTO movements(component_id,delta,reason) VALUES(?,?,?)',(part['id'],part['quantity'],'Undid build #'+str(build_id)))
+                db().execute('UPDATE project_builds SET undone=1 WHERE id=?',(build_id,))
+                db().commit()
+                flash('Build undone. Deducted parts returned to stock.')
+        return redirect(url_for('project',project_id=project_id))
 
     @app.get('/labels')
     def labels():
         items = rows('SELECT * FROM components ORDER BY name')
         selected = next((r for r in items if str(r['id']) == request.args.get('item_id')), items[0] if items else None)
         options = label_settings(request.args)
-        return render_template('labels.html', items=items, selected=selected, options=options)
+        return render_template('labels.html', categories=rows('SELECT * FROM categories ORDER BY name'), items=items, selected=selected, options=options)
 
     @app.route('/labels/pdf', methods=['GET', 'POST'])
     def labels_pdf():
@@ -622,7 +700,7 @@ def create_app(test_config=None):
         try:
             # Export only inventory tables, never account credentials or session data.
             db().execute('BEGIN')
-            tables = ('components', 'categories', 'locations', 'projects', 'project_items', 'movements', 'tags', 'component_tags')
+            tables = ('components', 'categories', 'locations', 'projects', 'project_items', 'project_builds', 'movements', 'tags', 'component_tags')
             payload = {'format': 'partshelf-inventory-v1', 'workspace': g.workspace['name'], 'tables': {table: [dict(row) for row in rows('SELECT * FROM '+table)] for table in tables}}
             db().commit()
             with zipfile.ZipFile(output, 'w', compression=zipfile.ZIP_DEFLATED) as archive:

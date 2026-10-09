@@ -66,7 +66,7 @@ def install_demo(app, schema):
             reset_at=db.execute('SELECT reset_at FROM demo_state WHERE id=1').fetchone()[0]
             expired=time.time()>=reset_at
             if expired:
-                for table in ('stock_alerts','project_items','movements','component_tags','components','projects','tags','locations','categories'):
+                for table in ('project_builds','stock_alerts','project_items','movements','component_tags','components','projects','tags','locations','categories'):
                     db.execute('DELETE FROM '+table)
                 seed(db)
                 reset_at=int(time.time())+RESET_SECONDS
@@ -128,7 +128,7 @@ def install_demo(app, schema):
                 session.pop('demo',None)
                 session.pop('demo_generation',None)
             return
-        allowed={'index','component','delete_component','edit_component','adjust_stock','storage','projects','project','add_to_project','consume','labels','label_help','labels_pdf','code_image','upload'}
+        allowed={'index','component','delete_component','edit_component','adjust_stock','storage','projects','project','add_to_project','consume','undo_build','labels','label_help','labels_pdf','code_image','upload'}
         g.demo=True
         g.user={'id':0,'username':'demo','workspace_id':0,'role':'member','platform_admin':0}
         g.workspace={'id':0,'name':'Partshelf demo'}

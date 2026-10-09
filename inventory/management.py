@@ -147,8 +147,10 @@ def install_management(app, db, auth):
             except Exception:
                 db().rollback()
                 raise
-            flash('Workspace created. Sign in with your new account.')
-            return redirect(url_for('login'))
+            user = db().execute('SELECT * FROM users WHERE email=? COLLATE NOCASE',(payload['email'],)).fetchone()
+            auth['finish_login'](user, False)
+            flash('Email verified. Your workspace is ready.')
+            return redirect(url_for('index'))
         auth['get_challenge']('registration')
         return render_template('registration_verify.html')
 

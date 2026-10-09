@@ -113,7 +113,9 @@ def install_community(app, db, auth):
             'community.roadmap':('Partshelf Roadmap — What’s Next','See planned improvements, work in progress, and completed features for Partshelf.'),
             'community.terms':('Partshelf Terms of Service','Terms for using Partshelf, operated by PCBStudios in Minnesota.'),
             'community.privacy':('Partshelf Privacy Information','How Partshelf handles account, inventory, feedback, and signup information.')}
-        title, description = descriptions.get(request.endpoint, ('Partshelf · Inventory','Partshelf by PCBStudios'))
+        page_names = {'index':'Inventory','component':'Component','edit_component':'Edit component' if (request.view_args or {}).get('item_id') else 'Add component','storage':'Storage areas','project':'Project','projects':'Projects','labels':'Label studio','login':'Sign in','manage.register':'Create workspace','auth.account':'Account & security','preferences.settings':'Settings'}
+        fallback = page_names.get(request.endpoint, (request.endpoint or 'Partshelf').split('.')[-1].replace('_',' ').title())
+        title, description = descriptions.get(request.endpoint, (fallback+' · Partshelf','Partshelf by PCBStudios'))
         return dict(site=values, no_paywall=values['no_paywall'], public_page=request.endpoint in INDEXABLE,
                     seo_title=title, seo_description=description,
                     canonical=app.config['PUBLIC_URL']+request.path if request.endpoint in INDEXABLE else '',

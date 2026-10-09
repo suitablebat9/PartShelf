@@ -74,7 +74,8 @@ def test_storage_project_costs_and_atomic_consumption(client, app):
     assert page.status_code == 200
     assert b'10.80' in page.data
     assert b'5.00' in page.data
-    assert post(client, '/projects/1/consume').status_code == 400
+    assert post(client, '/projects/1/consume').status_code == 302
+    assert b'Cannot build yet' in client.get('/projects/1').data
     with sqlite3.connect(app.config['DATABASE']) as db:
         assert db.execute('SELECT stock FROM components WHERE id=1').fetchone()[0] == 20
     post(client, '/components/2/stock', quantity='1', direction='add')

@@ -17,6 +17,7 @@ def migrate(connection):
         connection.execute('CREATE TABLE IF NOT EXISTS tags(id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL COLLATE NOCASE)')
         connection.execute('CREATE TABLE IF NOT EXISTS component_tags(component_id INTEGER REFERENCES components(id) ON DELETE CASCADE, tag_id INTEGER REFERENCES tags(id), PRIMARY KEY(component_id,tag_id))')
         connection.execute('CREATE INDEX IF NOT EXISTS component_tags_tag ON component_tags(tag_id,component_id)')
+        connection.execute('CREATE TABLE IF NOT EXISTS project_builds(id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE, build_count INTEGER NOT NULL, parts TEXT NOT NULL, created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, undone INTEGER NOT NULL DEFAULT 0)')
         from .security_schema import migrate_security
         migrate_security(connection)
         from .drawers import migrate_drawers

@@ -16,9 +16,14 @@ FIELDS = ('name', 'name_id', 'code', 'stock', 'unit', 'size', 'resistance', 'cap
 
 
 def settings(values):
+    dimension_unit = values.get('dimension_unit', 'in')
+    if dimension_unit not in ('in', 'mm'):
+        raise ValueError('Choose inches or millimeters.')
     def numeric(key, default, low, high):
         try:
             n = Decimal(str(values.get(key, default)))
+            if dimension_unit == 'mm' and key in ('width', 'height', 'margin_top', 'margin_bottom', 'margin_left', 'margin_right') and key in values:
+                n /= Decimal('25.4')
             if not n.is_finite() or not low <= n <= high:
                 raise ValueError()
             return float(n)

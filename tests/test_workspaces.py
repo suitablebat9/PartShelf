@@ -141,7 +141,11 @@ def test_public_signup_requires_verified_email_and_creates_isolated_owner(app):
     with c.session_transaction() as s:
         token = s['csrf']
     assert c.post('/register/verify', data=dict(csrf=token, code='bad')).status_code == 400
-    assert c.post('/register/verify', data=dict(csrf=token, code=code)).status_code == 302
+    verified = c.post('/register/verify', data=dict(csrf=token, code=code))
+    assert verified.status_code == 302
+    assert c.get('/').status_code == 200
+    with c.session_transaction() as signed_in:
+        assert signed_in['user'] == 'new-client'
     assert c.post('/register/verify', data=dict(csrf=token, code=code)).status_code == 400
     with sqlite3.connect(app.config['DATABASE']) as db:
         user = db.execute("SELECT id,workspace_id,role,email_verified,platform_admin FROM users WHERE username='new-client'").fetchone()
