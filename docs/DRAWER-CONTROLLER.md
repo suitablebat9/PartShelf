@@ -1,10 +1,10 @@
 # ESP32 XY drawer controller
 
-Partshelf supports an 8-column cabinet with one 8-row section or two vertically stacked 8-row sections. A single ESP32 controls the shared XY carriage, servo, and LED. Firmware is separate: this document is the HTTP contract to implement on the ESP32. No GPIO or stepper-driver assumptions are made by the website.
+Partshelf supports drawer organizers with 1–16 columns, 1–16 rows per section, and 1–8 vertically stacked sections, up to 512 drawers. Existing organizers retain their original 8×16 layout. A single ESP32 controls the shared XY carriage, servo, and LED. Firmware is separate: this document is the HTTP contract to implement on the ESP32. No GPIO or stepper-driver assumptions are made by the website.
 
 ## Website setup
 
-1. Open **Storage areas → XY drawer cabinets** and create **Two stacked 8 × 8 sections**. This creates 128 ordinary storage locations (A1–P8). The existing component create/edit form can use them too.
+1. Open **Storage areas → Add drawer organizer**. Set columns, rows per section, stacked sections, and an organizer color. The default 8 columns × 8 rows × 2 sections creates 128 ordinary storage locations (A1–P8). The existing component create/edit form can use them too.
 2. Reserve a LAN IP address for the ESP32. The Partshelf LXC must be able to reach it. The browser does not contact the ESP32 directly; HTTPS users outside your home use the same website controls.
 3. Authorize the controller for the workspace in `/etc/partshelf.env` (on this installation it points into `/mnt/partshelf/config`). The cabinet page displays the workspace ID. Example, for workspace 1:
 
@@ -15,20 +15,20 @@ Partshelf supports an 8-column cabinet with one 8-row section or two vertically 
    Then restart `partshelf` with `systemctl restart partshelf`. This operator-controlled mapping prevents public accounts from sending requests to arbitrary addresses on your server's LAN. Give a controller to only one workspace. Do not expose its port to the internet. HTTP carries its device key over the trusted LAN; HTTPS endpoints are also supported with normal certificate verification.
 4. Expand **Controller & calibration**, choose the authorized address, and enter the same random device API key configured in the ESP32 (16–256 printable characters, no spaces). Keys are encrypted using the server secret and never returned to the browser. Preserve `secret.key` with backups. Leaving the key field empty keeps the saved key; changing the device address requires a new key.
 5. Set A1's X/Y position, horizontal/vertical drawer pitch, extra Y gap between sections, retracted/open servo angles, and LED duration. Controls remain disabled until explicitly enabled. The defaults are examples, not measurements for your hardware.
-6. Assign parts by clicking a drawer and choosing a component. Multiple component types can share a drawer. Assignment moves the component's existing storage location without changing its quantity.
+6. Assign parts by clicking a drawer and selecting one or multiple components. Existing contents remain assigned. Set an individual drawer color or choose **Use organizer color** to inherit its organizer color. Multiple component types can share a drawer. Assignment moves the component's existing storage location without changing its quantity.
 
 Only workspace owners/admins configure hardware. Members may assign parts and operate it. Viewers can inspect the map only. Public demo visitors cannot access physical controls.
 
 ## Coordinates
 
-Rows 1–16 run top to bottom (A–P); columns 1–8 run left to right. The upper section is A–H and the lower is I–P.
+Rows run top to bottom (A–Z, then AA, AB, etc.); columns run left to right. With the default layout, the upper section is A–H and the lower is I–P. Firmware should validate coordinates against its calibrated physical limits rather than assuming an 8×16 layout.
 
 ```text
 x = x_origin + (column - 1) * x_pitch
- y = y_origin + (row - 1) * y_pitch + (section_gap if row > 8 else 0)
+ y = y_origin + (row - 1) * y_pitch + section_gap * floor((row - 1) / rows_per_section)
 ```
 
-`section_gap` is the **extra** distance beyond the normal row spacing at the H/I seam. Negative pitch reverses the corresponding axis; use a matching signed gap. Values are millimeters. The firmware converts millimeters to motor steps using its own calibrated steps/mm, acceleration, travel limits, and homing configuration.
+`section_gap` is the **extra** distance beyond the normal row spacing at every section boundary (H/I for the default layout). Negative pitch reverses the corresponding axis; use a matching signed gap. Values are millimeters. The firmware converts millimeters to motor steps using its own calibrated steps/mm, acceleration, travel limits, and homing configuration.
 
 ## HTTP protocol: partshelf-drawers-v1
 
@@ -84,3 +84,7 @@ HTTP 200 with the same format is also accepted. Supported statuses: `accepted`, 
 - If the device cannot report a terminal status, an owner/admin may reload the cabinet page and clear the lock under **Controller & calibration** only after physically checking that the controller has stopped and cannot later execute that command. Clearing this lock sends no device request and does not stop motors.
 
 The recent-command table records action, drawer, status, actor ID in the database, and UTC timestamps. It does not store the device key in the command payload. No firmware or physical motion is tested by automated website tests.
+
+## Storage and sidebar
+
+Organizers count as one storage area each; internal drawers are not listed separately on the Storage areas page. Drawer locations remain available in component editors and inventory filters. In **Settings → Your sidebar**, select storage-area or organizer names to add shortcuts, then reorder them with the arrows. These shortcuts are personal to the signed-in user and scoped to the current workspace. Hardware action buttons are hidden until controls are enabled under **Controller & calibration**.

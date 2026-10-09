@@ -17,7 +17,7 @@ def configure(client,**kwargs):
 def test_stacked_map_assignment_and_coordinates(app,client):
     setup_cabinet(app,client)
     page=client.get('/drawers/1')
-    assert page.status_code==200 and b'Lower section' in page.data and b'data-label="P8"' in page.data
+    assert page.status_code==200 and b'Section 2' in page.data and b'data-label="P8"' in page.data
     with sqlite3.connect(app.config['DATABASE']) as db:
         assert db.execute('SELECT COUNT(*) FROM cabinet_drawers').fetchone()[0]==128
     part(client)

@@ -210,6 +210,7 @@ def create_app(test_config=None):
         session.clear()
         g.user = g.workspace = None
         return render_template('suspended.html', workspace=error.workspace), 403
+    app.extensions['partshelf_inventory_db'] = db
     auth = install_auth(app, account_db)
     from .drawers import install_drawers
     install_drawers(app, db)
@@ -300,7 +301,7 @@ def create_app(test_config=None):
         query = 'SELECT c.*,cat.name AS category,l.name AS location FROM components c LEFT JOIN categories cat ON cat.id=c.category_id LEFT JOIN locations l ON l.id=c.location_id'
         items = rows(query + (' WHERE ' + ' AND '.join(clauses) if clauses else '') + ' ORDER BY ' + sort, params)
         all_items = rows('SELECT stock,unit_price FROM components')
-        return dict(items=items, facets=facets, tags=rows('SELECT * FROM tags ORDER BY name'), categories=rows('SELECT * FROM categories ORDER BY name'), locations=location_options(), suppliers=rows("SELECT DISTINCT supplier FROM components WHERE supplier!='' ORDER BY supplier"), total=len(all_items), empty=sum(r['stock']==0 for r in all_items), value=sum(Decimal(str(r['stock']))*Decimal(r['unit_price']) for r in all_items))
+        return dict(storage_count=db().execute('SELECT COUNT(*) FROM locations WHERE id NOT IN (SELECT location_id FROM cabinet_drawers)').fetchone()[0], items=items, facets=facets, tags=rows('SELECT * FROM tags ORDER BY name'), categories=rows('SELECT * FROM categories ORDER BY name'), locations=location_options(), suppliers=rows("SELECT DISTINCT supplier FROM components WHERE supplier!='' ORDER BY supplier"), total=len(all_items), empty=sum(r['stock']==0 for r in all_items), value=sum(Decimal(str(r['stock']))*Decimal(r['unit_price']) for r in all_items))
 
     @app.get('/')
     @app.get('/search')
@@ -467,7 +468,7 @@ def create_app(test_config=None):
             db().execute('INSERT INTO locations(name,kind,parent_id) VALUES(?,?,?)', (name, kind, request.form.get('parent_id') or None))
             db().commit()
             return redirect(url_for('storage'))
-        return render_template('storage.html', locations=location_options())
+        return render_template('storage.html', locations=[l for l in location_options() if not db().execute('SELECT 1 FROM cabinet_drawers WHERE location_id=?',(l['id'],)).fetchone()], organizers={c['location_id']:dict(c) for c in rows('SELECT * FROM cabinets')})
 
     @app.route('/projects', methods=['GET', 'POST'])
     def projects():

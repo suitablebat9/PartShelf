@@ -20,13 +20,17 @@ def install_preferences(app,db):
                 if not user or not (user['platform_admin'] or user['role'] in ('owner','admin')): continue
                 label='Client management' if user['platform_admin'] else label
             choices.append(dict(key=key,label=label,url=url,icon=icon))
+        if user and getattr(g,'workspace',None) and not getattr(g,'demo',False):
+            inventory=app.extensions['partshelf_inventory_db']()
+            for loc in inventory.execute('SELECT l.id,l.name,c.id AS cabinet_id FROM locations l LEFT JOIN cabinets c ON c.location_id=l.id WHERE l.id NOT IN (SELECT location_id FROM cabinet_drawers) ORDER BY l.name'):
+                choices.append(dict(key=f'storage:{g.workspace["id"]}:{loc["id"]}',label=loc['name'],url=f'/drawers/{loc["cabinet_id"]}' if loc['cabinet_id'] else f'/search?location_id={loc["id"]}',icon='▥',default_visible=False))
         saved=json.loads(row['sidebar']) if row else []
         by_key={item['key']:item for item in choices}
         ordered=[]
         for item in saved:
             if item['key'] in by_key:
                 ordered.append(dict(by_key.pop(item['key']),visible=item['visible']))
-        ordered.extend(dict(item,visible=True) for item in by_key.values())
+        ordered.extend(dict(item,visible=item.get('default_visible',True)) for item in by_key.values())
         return dict(palette=row['palette'] if row else 'default',sidebar_choices=ordered,show_donate=bool(row['donate']) if row else True,palettes=THEMES)
 
     app.context_processor(preferences)

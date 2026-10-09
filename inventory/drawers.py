@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import uuid
 from urllib.parse import urlsplit
 import requests
@@ -28,7 +29,26 @@ def migrate_drawers(db):
         row INTEGER, col INTEGER, status TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1,
         actor INTEGER NOT NULL, created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+    columns = {r[1] for r in db.execute('PRAGMA table_info(cabinets)')}
+    for name, definition in {'column_count':'INTEGER NOT NULL DEFAULT 8', 'section_rows':'INTEGER NOT NULL DEFAULT 8', 'color':"TEXT NOT NULL DEFAULT '#527aa3'"}.items():
+        if name not in columns: db.execute(f'ALTER TABLE cabinets ADD COLUMN {name} {definition}')
+    if 'color' not in {r[1] for r in db.execute('PRAGMA table_info(cabinet_drawers)')}:
+        db.execute("ALTER TABLE cabinet_drawers ADD COLUMN color TEXT NOT NULL DEFAULT ''")
     db.execute('CREATE UNIQUE INDEX IF NOT EXISTS one_cabinet_command ON cabinet_commands(cabinet_id) WHERE active=1')
+
+
+def row_name(number):
+    result = ''
+    while number:
+        number, remainder = divmod(number-1, 26)
+        result = chr(65+remainder) + result
+    return result
+
+
+def color_value(value, allow_empty=False):
+    if allow_empty and not value: return ''
+    if not re.fullmatch(r'#[0-9a-fA-F]{6}', value): raise ValueError('Choose a valid color.')
+    return value.lower()
 
 
 def normalized_endpoint(value):
@@ -74,6 +94,7 @@ def device_request(cabinet, method, path, payload=None):
 def install_drawers(app, db):
     app.config.setdefault('DEVICE_ENDPOINTS', json.loads(os.environ.get('PARTSHELF_DEVICE_ENDPOINTS', '{}')))
     bp = Blueprint('drawers', __name__)
+    app.jinja_env.globals['row_name'] = row_name
 
     def access(configure=False):
         if g.demo:
@@ -100,21 +121,31 @@ def install_drawers(app, db):
         access(configure=True)
         if request.method == 'POST':
             name = request.form.get('name', '').strip()
-            if not name or len(name) > 100: raise ValueError('Enter a cabinet name of up to 100 characters.')
+            if not name or len(name) > 100: raise ValueError('Enter an organizer name of up to 100 characters.')
             db().execute('BEGIN IMMEDIATE')
             if db().execute('SELECT COUNT(*) FROM cabinets').fetchone()[0] >= 20:
-                raise ValueError('Up to 20 cabinets are supported per workspace.')
-            row_count = int(request.form.get('rows', '16'))
-            if row_count not in (8,16): raise ValueError('Choose one or two stacked sections.')
+                raise ValueError('Up to 20 organizers are supported per workspace.')
+            if 'columns' in request.form:
+                columns = int(request.form.get('columns','8'))
+                section_rows = int(request.form.get('section_rows','8'))
+                stacks = int(request.form.get('stacks','2'))
+                if not 1 <= columns <= 16 or not 1 <= section_rows <= 16 or not 1 <= stacks <= 8 or columns*section_rows*stacks > 512:
+                    raise ValueError('Use 1–16 columns/rows and 1–8 stacked sections, up to 512 drawers.')
+                row_count = section_rows*stacks
+            else:
+                row_count = int(request.form.get('rows','16'))
+                if row_count not in (8,16): raise ValueError('Choose a valid layout.')
+                columns, section_rows = 8, 8
+            color = color_value(request.form.get('color','#527aa3'))
             loc = db().execute("INSERT INTO locations(name,kind) VALUES(?,'Cabinet')", (name,)).lastrowid
-            cid = db().execute('INSERT INTO cabinets(name,location_id,row_count) VALUES(?,?,?)', (name, loc,row_count)).lastrowid
+            cid = db().execute('INSERT INTO cabinets(name,location_id,row_count,column_count,section_rows,color) VALUES(?,?,?,?,?,?)', (name,loc,row_count,columns,section_rows,color)).lastrowid
             for row in range(1, row_count+1):
-                for col in range(1, 9):
-                    lid = db().execute("INSERT INTO locations(name,kind,parent_id) VALUES(?,'Drawer',?)", (f'{chr(64+row)}{col}', loc)).lastrowid
-                    db().execute('INSERT INTO cabinet_drawers VALUES(?,?,?,?)', (cid, row, col, lid))
+                for col in range(1, columns+1):
+                    lid = db().execute("INSERT INTO locations(name,kind,parent_id) VALUES(?,'Drawer',?)", (f'{row_name(row)}{col}', loc)).lastrowid
+                    db().execute('INSERT INTO cabinet_drawers(cabinet_id,row,col,location_id) VALUES(?,?,?,?)', (cid, row, col, lid))
             db().commit()
             return redirect(f'/drawers/{cid}')
-        return render_template('drawers.html', cabinets=db().execute('SELECT * FROM cabinets ORDER BY name').fetchall())
+        return redirect('/storage')
 
     @bp.get('/drawers/<int:cid>')
     def detail(cid):
@@ -122,11 +153,31 @@ def install_drawers(app, db):
         item = cabinet(cid)
         slots = []
         for slot in db().execute('SELECT * FROM cabinet_drawers WHERE cabinet_id=? ORDER BY row,col', (cid,)):
-            slots.append(dict(slot, label=f'{chr(64+slot["row"])}{slot["col"]}', parts=[dict(p) for p in db().execute('SELECT id,name,name_id,stock,unit FROM components WHERE location_id=? ORDER BY name', (slot['location_id'],))]))
+            slots.append(dict(slot, label=f'{row_name(slot["row"])}{slot["col"]}', parts=[dict(p) for p in db().execute('SELECT id,name,name_id,stock,unit FROM components WHERE location_id=? ORDER BY name', (slot['location_id'],))]))
         active = db().execute('SELECT * FROM cabinet_commands WHERE cabinet_id=? AND active=1', (cid,)).fetchone()
         history = db().execute('SELECT * FROM cabinet_commands WHERE cabinet_id=? ORDER BY created DESC,rowid DESC LIMIT 10', (cid,)).fetchall()
         return render_template('drawer_cabinet.html', cabinet=item, slots=slots, active=active, history=history,
             endpoints=allowed_endpoints(), components=db().execute('SELECT id,name,name_id FROM components ORDER BY name').fetchall())
+
+    @bp.post('/drawers/<int:cid>/appearance')
+    def appearance(cid):
+        access(configure=True); item=cabinet(cid)
+        name=request.form.get('name','').strip()
+        if not name or len(name)>100: raise ValueError('Enter an organizer name of up to 100 characters.')
+        color=color_value(request.form.get('color',''))
+        db().execute('UPDATE cabinets SET name=?,color=? WHERE id=?',(name,color,cid))
+        db().execute('UPDATE locations SET name=? WHERE id=?',(name,item['location_id']))
+        db().commit()
+        return redirect(f'/drawers/{cid}')
+
+    @bp.post('/drawers/<int:cid>/color')
+    def drawer_color(cid):
+        access(); cabinet(cid)
+        color=color_value('' if request.form.get('reset')=='1' else request.form.get('color',''),allow_empty=True)
+        row,col=request.form.get('row'),request.form.get('col')
+        if not db().execute('UPDATE cabinet_drawers SET color=? WHERE cabinet_id=? AND row=? AND col=?',(color,cid,row,col)).rowcount: abort(404)
+        db().commit()
+        return redirect(f'/drawers/{cid}?slot={row}-{col}')
 
     @bp.post('/drawers/<int:cid>/settings')
     def settings(cid):
@@ -166,12 +217,15 @@ def install_drawers(app, db):
         access(); cabinet(cid)
         slot = db().execute('SELECT * FROM cabinet_drawers WHERE cabinet_id=? AND row=? AND col=?', (cid,request.form.get('row'),request.form.get('col'))).fetchone()
         if not slot: abort(404)
-        component_id = request.form.get('component_id')
-        if request.form.get('remove') == '1':
-            changed = db().execute('UPDATE components SET location_id=NULL,version=version+1 WHERE id=? AND location_id=?', (component_id,slot['location_id'])).rowcount
-        else:
-            changed = db().execute('UPDATE components SET location_id=?,version=version+1 WHERE id=?', (slot['location_id'],component_id)).rowcount
-        if not changed: abort(404)
+        component_ids = request.form.getlist('component_id')
+        if not component_ids or len(component_ids)>512: raise ValueError('Select at least one component.')
+        db().execute('BEGIN IMMEDIATE')
+        for component_id in set(component_ids):
+            if request.form.get('remove') == '1':
+                changed = db().execute('UPDATE components SET location_id=NULL,version=version+1 WHERE id=? AND location_id=?', (component_id,slot['location_id'])).rowcount
+            else:
+                changed = db().execute('UPDATE components SET location_id=?,version=version+1 WHERE id=?', (slot['location_id'],component_id)).rowcount
+            if not changed: abort(404)
         db().commit()
         return redirect(f'/drawers/{cid}?slot={slot["row"]}-{slot["col"]}')
 
@@ -189,8 +243,8 @@ def install_drawers(app, db):
         if db().execute('SELECT 1 FROM cabinet_commands WHERE cabinet_id=? AND active=1', (cid,)).fetchone(): abort(409, 'A command is already active. Check its status first.')
         command_id = str(uuid.uuid4())
         payload = dict(protocol='partshelf-drawers-v1', command_id=command_id, action=action,
-            drawer=dict(row=slot['row'],column=slot['col'],label=f'{chr(64+slot["row"])}{slot["col"]}'),
-            position_mm=dict(x=item['x_origin']+(slot['col']-1)*item['x_pitch'],y=item['y_origin']+(slot['row']-1)*item['y_pitch']+(item['section_gap'] if slot['row']>8 else 0)),
+            drawer=dict(row=slot['row'],column=slot['col'],label=f'{row_name(slot["row"])}{slot["col"]}'),
+            position_mm=dict(x=item['x_origin']+(slot['col']-1)*item['x_pitch'],y=item['y_origin']+(slot['row']-1)*item['y_pitch']+(item['section_gap']*((slot['row']-1)//item['section_rows']))),
             servo=dict(closed_degrees=item['servo_closed'],open_degrees=item['servo_open']),light_seconds=item['light_seconds'])
         db().execute('INSERT INTO cabinet_commands(id,cabinet_id,action,row,col,status,actor) VALUES(?,?,?,?,?,?,?)',
                      (command_id,cid,action,slot['row'],slot['col'],'sending',g.user['id']))
