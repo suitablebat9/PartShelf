@@ -1,0 +1,5 @@
+{% extends 'base.html' %}{% block title %}Delete component · Partshelf{% endblock %}{% block content %}
+<section class="panel account-panel danger-zone"><h1>Delete {{ item.name }}?</h1><p>{{ item.name_id }} · {{ item.stock|qty }} {{ item.unit }} in stock</p><p>This permanently removes the component, its stock history, low-stock alerts, and entries in project parts lists. Other components and the storage drawer are kept.</p>
+{% if projects %}<h2>Affected projects</h2><ul>{% for project in projects %}<li><a href="/projects/{{ project.id }}">{{ project.name }}</a> — {{ project.quantity|qty }} {{ item.unit }}</li>{% endfor %}</ul>{% endif %}
+<form method="post"><input type="hidden" name="csrf" value="{{ csrf() }}"><input type="hidden" name="version" value="{{ item.version }}"><label class="check-label"><input type="checkbox" name="confirm" value="delete" required>I understand this cannot be undone.</label><div class="actions"><a href="/components/{{ item.id }}" class="button secondary">Cancel</a><button class="danger-button">Delete component permanently</button></div></form></section>
+{% endblock %}

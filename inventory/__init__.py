@@ -161,7 +161,7 @@ def create_app(test_config=None):
             if request.method == 'GET' and request.endpoint:
                 session['login_destination'] = request.full_path.rstrip('?')
             return redirect(url_for('community.welcome') if request.path=='/' else url_for('login'))
-        inventory_writes = ('edit_component', 'adjust_stock', 'storage', 'projects', 'project', 'add_to_project', 'consume')
+        inventory_writes = ('delete_component', 'edit_component', 'adjust_stock', 'storage', 'projects', 'project', 'add_to_project', 'consume')
         if g.user and request.method == 'POST' and request.endpoint in inventory_writes:
             if sum(len(value.encode('utf-8')) for _, value in request.form.items(multi=True)) > 65536:
                 raise ValueError('Keep the text fields in one submission under 64 KB.')
@@ -432,6 +432,27 @@ def create_app(test_config=None):
     @app.get('/components/<int:item_id>')
     def component(item_id):
         return render_template('component.html', drawer=db().execute('SELECT d.* FROM cabinet_drawers d JOIN components c ON c.location_id=d.location_id WHERE c.id=?',(item_id,)).fetchone(), projects=rows('SELECT id,name FROM projects ORDER BY name'), tags=rows('SELECT t.name FROM tags t JOIN component_tags ct ON ct.tag_id=t.id WHERE ct.component_id=? ORDER BY t.name', (item_id,)), item=one('SELECT c.*,cat.name AS category,l.name AS location FROM components c LEFT JOIN categories cat ON cat.id=c.category_id LEFT JOIN locations l ON l.id=c.location_id WHERE c.id=?', (item_id,)), movements=rows('SELECT * FROM movements WHERE component_id=? ORDER BY id DESC LIMIT 50', (item_id,)))
+
+    @app.route('/components/<int:item_id>/delete', methods=['GET', 'POST'])
+    def delete_component(item_id):
+        if g.user['role'] == 'viewer':
+            abort(403, 'Your workspace role is read-only.')
+        if request.method == 'POST':
+            db().execute('BEGIN IMMEDIATE')
+        item = one('SELECT * FROM components WHERE id=?', (item_id,))
+        if request.method == 'POST':
+            if request.form.get('confirm') != 'delete':
+                raise ValueError('Confirm deletion before continuing.')
+            if str(item['version']) != request.form.get('version'):
+                abort(409, 'This component changed. Reload the confirmation page before deleting it.')
+            for table in ('stock_alerts', 'component_tags', 'project_items', 'movements'):
+                db().execute('DELETE FROM '+table+' WHERE component_id=?', (item_id,))
+            db().execute('DELETE FROM components WHERE id=?', (item_id,))
+            db().commit()
+            flash('Component deleted.')
+            return redirect(url_for('index'))
+        projects = rows('SELECT p.id,p.name,i.quantity FROM projects p JOIN project_items i ON i.project_id=p.id WHERE i.component_id=? ORDER BY p.name', (item_id,))
+        return render_template('component_delete.html', item=item, projects=projects)
 
     @app.post('/components/<int:item_id>/project')
     def add_to_project(item_id):
