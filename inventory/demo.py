@@ -29,7 +29,7 @@ def seed(db):
     ]
     for i, item in enumerate(samples,1):
         name, code, cat, loc, stock, price, size, resistance, capacitance, voltage, tolerance = item
-        db.execute('INSERT INTO components(id,name,name_id,code,description,category_id,location_id,stock,unit_price,size,resistance,capacitance,voltage,tolerance,supplier,purchase_quantity,purchase_total,low_stock) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        db.execute('INSERT INTO components(id,name,name_id,code,description,category_id,location_id,stock,unit_price,size,resistance,capacitance,voltage,tolerance,supplier,purchase_quantity,purchase_total,low_stock,price_recorded) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)',
                    (i,name,code,code,'Sample component for the Partshelf demo.',cat,loc,stock,price,size,resistance,capacitance,voltage,tolerance,'Digi-Key' if i%2 else 'Mouser','100',str(Decimal(price)*100),'10'))
         db.execute('INSERT INTO movements(component_id,delta,reason) VALUES(?,?,?)',(i,stock,'Demo starting stock'))
     db.executemany('INSERT INTO tags(id,name) VALUES(?,?)',[(1,'Prototype'),(2,'SMD'),(3,'Power'),(4,'IoT')])

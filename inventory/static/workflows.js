@@ -9,6 +9,10 @@
   const all=document.querySelector('#bulk-select-all');if(all){all.checked=count>0&&count===choices.length;all.indeterminate=count>0&&count<choices.length}
  }
  document.addEventListener('change',e=>{if(e.target.id==='bulk-select-all')document.querySelectorAll('[data-bulk-select]').forEach(input=>input.checked=e.target.checked);if(e.target.closest('#inventory-results'))refreshBulk()});
- document.addEventListener('click',e=>{const quick=e.target.closest('[data-quick-stock]');if(!quick)return;document.querySelectorAll('[data-bulk-select]').forEach(input=>input.checked=input.value===quick.dataset.quickStock);const form=document.querySelector('#bulk-form');form.elements.action.value='stock_add';refreshBulk();form.scrollIntoView({block:'center',behavior:'smooth'});form.elements.quantity.focus()});
+ document.addEventListener('click',e=>{const quick=e.target.closest('[data-quick-stock]');if(!quick)return;
+ const dialog=document.createElement('dialog'),name=quick.closest('tr').querySelector('.item-name').textContent;
+ dialog.innerHTML='<form method="post" action="/inventory/bulk"><h2>Adjust stock</h2><p class="quick-part"></p><input type="hidden" name="csrf"><input type="hidden" name="component_ids"><label>Action<select name="action"><option value="stock_add">Add stock</option><option value="stock_remove">Remove stock</option></select></label><label>Quantity<input name="quantity" type="number" min="0.000001" step="any" required></label><div class="actions"><button type="button" class="secondary" data-cancel>Cancel</button><button>Preview change</button></div></form>';
+ dialog.querySelector('.quick-part').textContent=name;dialog.querySelector('[name=csrf]').value=document.querySelector('meta[name=csrf-token]').content;dialog.querySelector('[name=component_ids]').value=quick.dataset.quickStock;dialog.querySelector('[data-cancel]').onclick=()=>dialog.close();dialog.addEventListener('close',()=>{dialog.remove();quick.focus()});document.body.append(dialog);dialog.showModal();dialog.querySelector('[name=quantity]').focus();
+ });
  const results=document.querySelector('#inventory-results');if(results){new MutationObserver(refreshBulk).observe(results,{childList:true});refreshBulk()}
 })();

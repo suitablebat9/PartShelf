@@ -105,7 +105,7 @@ def install_workflows(app, db, number, safe_url, location_options):
                 location=row.get('storage','')
                 if location and location not in locations:
                     raise ValueError('Storage path not found. Create it in Storage areas, then use its full path separated by / with spaces.')
-                values=dict(name=name,name_id=name_id,code=code,stock=float(stock),unit=row.get('unit') or 'pcs',unit_price=str(price),location_id=locations.get(location),purchase_quantity=str(qty) if qty is not None else None,purchase_total=str(total) if total is not None else None,price_mode='unit',purchase_pack=str(number(row.get('purchase_pack') or '1',Decimal('0.000001'))),low_stock=str(number(row['low_stock'])) if row.get('low_stock') else None)
+                values=dict(price_recorded=int(bool(row.get('unit_price'))),name=name,name_id=name_id,code=code,stock=float(stock),unit=row.get('unit') or 'pcs',unit_price=str(price),location_id=locations.get(location),purchase_quantity=str(qty) if qty is not None else None,purchase_total=str(total) if total is not None else None,price_mode='unit',purchase_pack=str(number(row.get('purchase_pack') or '1',Decimal('0.000001'))),low_stock=str(number(row['low_stock'])) if row.get('low_stock') else None)
                 for field in ('description','supplier','attributes','size','resistance','capacitance','voltage','tolerance'):
                     values[field]=row.get(field,'')
                 values['supplier_url']=safe_url(row.get('supplier_url',''))

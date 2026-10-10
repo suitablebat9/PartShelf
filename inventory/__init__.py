@@ -410,6 +410,7 @@ def create_app(test_config=None):
             threshold = f.get('low_stock', item.get('low_stock') or '').strip()
             values['low_stock'] = str(number(threshold)) if threshold else None
             values['purchase_pack'] = str(number(f.get('purchase_pack', item.get('purchase_pack', '1')) or '1', Decimal('0.000001')))
+            values['price_recorded'] = int(bool(f.get('purchase_total' if mode=='purchase' else 'unit_price', f.get('price','')).strip()))
             values.update(purchase_quantity=str(quantity) if quantity is not None else None, purchase_total=str(total_price) if total_price is not None else None, price_mode=mode)
             for field in ('size', 'resistance', 'capacitance', 'voltage', 'tolerance'):
                 values[field] = f.get(field, item.get(field, '')).strip()
