@@ -85,3 +85,10 @@ body:not(.auth-page) footer{position:static;margin-top:auto;width:auto;flex-shri
 }
 .column-choice{flex-direction:row}.responsive-parts{white-space:normal}.responsive-parts td{overflow-wrap:anywhere}.sidebar .brand{order:-1}.mobile-menu-toggle{order:0}
 details.panel:not([open]){padding:12px 0;margin-bottom:12px}details.panel:not([open])>summary{margin:0}.project-picker-row small{display:block}.label-layout>.panel{align-self:start}.label-layout .advanced-layout:not([open]){margin-bottom:0}
+
+/* Setup can be skipped without opening or completing the checklist. */
+.setup-banner{display:flex;align-items:flex-start;gap:12px;border-top:1px solid var(--line);margin-bottom:12px;padding-top:8px}.setup-banner .setup-checklist{flex:1;min-width:0;border:0;margin:0;padding:8px 0}.skip-setup{flex-shrink:0}.skip-setup button{font-size:12px;padding:8px 10px}.setup-banner .actions{justify-content:flex-start}
+body main,body.auth-page main,body.public-page main{display:flex;flex-direction:column;padding-bottom:20px}
+body footer.site-footer{position:static;display:flex;align-items:baseline;justify-content:flex-start;gap:12px 20px;margin-top:auto;padding:16px 0 0;width:100%;background:transparent}
+.site-footer>a,.site-footer summary{color:var(--muted);font-size:12px;text-decoration:none}.site-footer>a:hover{text-decoration:underline}.site-footer .footer-brand{margin-right:auto;color:var(--text)}.footer-brand span{color:var(--muted)}.footer-more{position:relative}.footer-more summary{cursor:pointer;min-height:32px;padding:8px 0}.site-footer .footer-links{position:absolute;bottom:100%;right:0;width:220px;display:grid;grid-template-columns:1fr;gap:0;margin:0;padding:8px;background:var(--panel);border:1px solid var(--line);border-radius:4px;box-shadow:0 4px 18px #0002;z-index:25;max-height:60vh;overflow:auto;white-space:normal}.site-footer .footer-links a{padding:10px 12px;font-size:14px}.site-footer .footer-links a:hover{background:var(--accent-soft)}
+@media(max-width:700px){.setup-banner{gap:8px}.setup-banner summary{font-size:13px}.footer-brand span{display:none}body footer.site-footer{gap:20px;padding-top:10px}.site-footer>a{padding:8px 0}}
