@@ -158,7 +158,7 @@ def install_management(app, db, auth):
     def dashboard():
         if g.user['platform_admin']:
             workspaces = db().execute('SELECT w.*,COUNT(u.id) AS members FROM workspaces w LEFT JOIN users u ON u.workspace_id=w.id AND u.deleted_at IS NULL WHERE w.deleted_at IS NULL GROUP BY w.id ORDER BY w.id DESC').fetchall()
-            logs = db().execute('SELECT a.*,u.username FROM management_audit a LEFT JOIN users u ON u.id=a.actor_id ORDER BY a.id DESC LIMIT 100').fetchall()
+            logs = db().execute('SELECT a.*,u.username,w.name AS workspace_name FROM management_audit a LEFT JOIN users u ON u.id=a.actor_id LEFT JOIN workspaces w ON w.id=a.workspace_id ORDER BY a.id DESC LIMIT 100').fetchall()
             return render_template('management.html', workspaces=workspaces, deleted_workspaces=db().execute('SELECT * FROM workspaces WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC').fetchall(), logs=logs, registration_open=registration_open(), mail_ready=mail_ready())
         authorize(g.user['workspace_id'])
         return redirect(url_for('manage.workspace', workspace_id=g.user['workspace_id']))
@@ -175,7 +175,7 @@ def install_management(app, db, auth):
         sources=db().execute("SELECT COALESCE(signup_source,'Not recorded') AS source,COUNT(*) AS total FROM users WHERE deleted_at IS NULL GROUP BY source ORDER BY total DESC").fetchall()
         countries=db().execute("SELECT COALESCE(signup_country,'Not recorded') AS country,COUNT(*) AS total FROM users WHERE deleted_at IS NULL GROUP BY country ORDER BY total DESC").fetchall()
         trend=db().execute("SELECT date(created) AS day,COUNT(*) AS total FROM users WHERE created>=datetime('now','-30 days') GROUP BY day ORDER BY day DESC").fetchall()
-        return render_template('analytics.html',traffic=visitor_summary(db()),workspaces=workspaces,users=users,summary=summary,sources=sources,countries=countries,trend=trend,page=page,has_next=db().execute('SELECT COUNT(*) FROM users').fetchone()[0]>page*100)
+        return render_template('analytics.html',tracking_since=db().execute('SELECT MIN(day) FROM visitor_daily').fetchone()[0],traffic=visitor_summary(db()),workspaces=workspaces,users=users,summary=summary,sources=sources,countries=countries,trend=trend,page=page,has_next=db().execute('SELECT COUNT(*) FROM users').fetchone()[0]>page*100)
 
     @bp.get('/management/analytics/live')
     @platform

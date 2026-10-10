@@ -68,7 +68,8 @@ def test_settings_public_session_and_removed_editors(app,client):
     page=client.get('/settings')
     assert page.status_code==200 and b'Public site settings' in page.data
     sidebar=client.get('/').data.split(b'<nav aria-label="Sidebar">',1)[1].split(b'</nav>',1)[0]
-    assert b'/account' not in sidebar and b'/management/site' not in sidebar
+    assert b'/account' not in sidebar and b'/management/site' in sidebar
+    assert b'Platform admin' in sidebar
     for path in ['/support','/feedback']:
         page=client.get(path)
         assert b'aria-label="Sidebar"' in page.data and b'href="/login"' not in page.data

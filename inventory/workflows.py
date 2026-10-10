@@ -200,7 +200,7 @@ def install_workflows(app, db, number, safe_url, location_options):
         else:
             qty=number(source.get('quantity',''),Decimal('0.000001'))
             plan['quantity']=str(qty)
-            plan['reason']=source.get('reason','').strip()[:500] or 'Bulk stock adjustment'
+            plan['reason']=source.get('reason','').strip()[:500] or ('Stock adjustment' if len(items)==1 else 'Bulk stock adjustment')
             for item in items:
                 result=Decimal(str(item['stock']))+(qty if action=='stock_add' else -qty)
                 if result<0: raise ValueError(f"Not enough stock for {item['name']}. Nothing was changed.")

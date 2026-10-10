@@ -71,8 +71,10 @@ def test_attribution_google_signup_and_private_analytics(app,client):
     assert app.test_client().get('/management/analytics').status_code==302
     page=client.get('/management/analytics')
     assert page.status_code==200
-    for text in (b'Newsletter',b'analytics@gmail.com',b'Component types',b'US'):
+    for text in (b'Newsletter',b'US'):
         assert text in page.data
+    assert b'analytics@gmail.com' in client.get('/management/analytics?view=users').data
+    assert b'Component types' in client.get('/management/analytics?view=workspaces').data
     assert b'secret=private' not in page.data
 
 

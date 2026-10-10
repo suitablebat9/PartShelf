@@ -1,4 +1,5 @@
 """Public information, voluntary support, and private feedback administration."""
+import json
 import hashlib
 import re
 import secrets
@@ -74,9 +75,10 @@ def install_community(app, db, auth):
             revision INTEGER NOT NULL DEFAULT 0, notified_revision INTEGER NOT NULL DEFAULT 0,
             created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
             CREATE INDEX IF NOT EXISTS feedback_created ON feedback(created);''')
+        db().execute('CREATE TABLE IF NOT EXISTS site_revisions(id INTEGER PRIMARY KEY,section TEXT NOT NULL,values_json TEXT NOT NULL,created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)')
         db().execute('BEGIN IMMEDIATE')
         columns={row[1] for row in db().execute('PRAGMA table_info(feedback)')}
-        for name,definition in [('deleted','INTEGER NOT NULL DEFAULT 0'),('roadmap_id','INTEGER')]:
+        for name,definition in [('deleted','INTEGER NOT NULL DEFAULT 0'),('roadmap_id','INTEGER'),('internal_note',"TEXT NOT NULL DEFAULT ''"),('internal_revision','INTEGER NOT NULL DEFAULT 0')]:
             if name not in columns: db().execute('ALTER TABLE feedback ADD COLUMN '+name+' '+definition)
         for key, value in DEFAULTS.items():
             db().execute('INSERT OR IGNORE INTO site_settings VALUES(?,?)', (key,value))
@@ -238,9 +240,22 @@ def install_community(app, db, auth):
     @admin
     @auth['recent']
     def site_admin():
+        sections={'about':('about_name','about_text','about_ai_heading','about_ai_text'),'support':('no_paywall',),'policies':('terms_text','privacy_text'),'integrations':('stripe_buy_button_id','stripe_publishable_key','stripe_link','google_verification')}
+        section=request.values.get('section','about')
+        if section not in sections: abort(400)
         if request.method=='POST':
+            db().execute('BEGIN IMMEDIATE')
             current=settings()
             values={key:request.form.get(key,current.get(key,default)).strip() for key,default in DEFAULTS.items()}
+            if request.form.get('restore_revision'):
+                old=db().execute('SELECT * FROM site_revisions WHERE id=? AND section=?',(request.form['restore_revision'],section)).fetchone()
+                if not old: abort(404)
+                values.update(json.loads(old['values_json']))
+            if request.form.get('section'):
+                values={key:(values[key] if key in sections[section] else current[key]) for key in DEFAULTS}
+                expected=request.form.get('content_version')
+                actual=hashlib.sha256(json.dumps({k:current[k] for k in sections[section]},sort_keys=True).encode()).hexdigest()
+                if expected and expected!=actual: abort(409,'This section changed. Reload before publishing.')
             if len(values['about_name'])>100 or any(len(value)>30000 for value in values.values()):
                 raise ValueError('Keep page text under 30,000 characters and the name under 100.')
             for key,pattern in [('stripe_buy_button_id',r'buy_btn_[A-Za-z0-9]+'),('stripe_publishable_key',r'pk_(live|test)_[A-Za-z0-9]+')]:
@@ -254,11 +269,16 @@ def install_community(app, db, auth):
                 raise ValueError('Use a Stripe-hosted Payment Link from buy.stripe.com or donate.stripe.com.')
             if values['google_verification'] and not re.fullmatch(r'[A-Za-z0-9_-]{10,200}',values['google_verification']):
                 raise ValueError('Paste only the Google site verification token, not the HTML tag.')
+            changed={key:current[key] for key in values if values[key]!=current[key]}
+            if changed:
+                db().execute('INSERT INTO site_revisions(section,values_json) VALUES(?,?)',(section,json.dumps(changed)))
             for key,value in values.items():
                 db().execute('UPDATE site_settings SET value=? WHERE key=?',(value,key))
             db().commit();flash('Public site settings saved.')
-            return redirect(url_for('community.site_admin'))
-        return render_template('site_admin.html')
+            return redirect(url_for('community.site_admin',section=section))
+        current=settings()
+        version=hashlib.sha256(json.dumps({k:current[k] for k in sections[section]},sort_keys=True).encode()).hexdigest()
+        return render_template('site_admin.html',section=section,content_version=version,revisions=db().execute('SELECT id,created FROM site_revisions WHERE section=? ORDER BY id DESC LIMIT 20',(section,)).fetchall())
 
     def notify(row):
         if not (not row['deleted'] and row['verified'] and row['subscribed'] and row['revision']>row['notified_revision']):
@@ -283,6 +303,13 @@ def install_community(app, db, auth):
                 db().commit();flash('Feedback moved to Trash.' if action=='delete' else 'Feedback restored.')
                 return redirect(url_for('community.feedback_admin'))
             if row['deleted']: abort(404)
+            if action=='internal':
+                note=request.form.get('internal_note','').strip()
+                if len(note)>5000: raise ValueError('Keep internal notes under 5,000 characters.')
+                changed=db().execute('UPDATE feedback SET internal_note=?,internal_revision=internal_revision+1 WHERE id=? AND internal_revision=?',(note,row['id'],request.form.get('internal_revision'))).rowcount
+                if not changed: abort(409,'Internal notes changed. Reload before saving.')
+                db().commit();flash('Private note saved. No email sent.')
+                return redirect(url_for('community.feedback_admin'))
             if action=='roadmap':
                 title=request.form.get('roadmap_title','').strip()
                 description=request.form.get('roadmap_description','').strip()

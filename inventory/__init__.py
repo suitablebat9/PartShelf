@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS project_items(project_id INTEGER REFERENCES projects(
 
 def create_app(test_config=None):
     app = Flask(__name__)
-    asset_versions = {name: hashlib.sha256((Path(app.static_folder) / name).read_bytes()).hexdigest()[:12] for name in ('branding/product-preview.png', 'branding/product-preview-mobile.png', 'scanner.js', 'workflows.js', 'app.css', 'app.js', 'auth.js', 'community.js', 'donation.css', 'layout.css', 'drawers.css', 'drawers.js')}
+    asset_versions = {name: hashlib.sha256((Path(app.static_folder) / name).read_bytes()).hexdigest()[:12] for name in ('branding/product-preview.png', 'branding/product-preview-mobile.png', 'scanner.js', 'admin-ui.js', 'workflows.js', 'app.css', 'app.js', 'auth.js', 'community.js', 'donation.css', 'layout.css', 'drawers.css', 'drawers.js')}
 
     @app.url_defaults
     def version_static_assets(endpoint, values):
@@ -200,8 +200,10 @@ def create_app(test_config=None):
 
     @app.errorhandler(ValueError)
     def invalid(error):
-        if request.is_json:
+        if request.is_json or (request.endpoint=='labels_pdf' and request.args.get('preview')=='1'):
             return {'error': str(error)}, 400
+        if request.endpoint=='labels_pdf' and request.args.get('render')=='image':
+            return render_template('label_error.html',message=str(error)),400
         return render_template('error.html', message=str(error)), 400
 
     @app.errorhandler(sqlite3.IntegrityError)
@@ -537,13 +539,15 @@ def create_app(test_config=None):
         counts = {r['location_id']:r['n'] for r in rows('SELECT location_id,COUNT(*) AS n FROM components GROUP BY location_id')}
         by_id = {l['id']:l for l in all_locations}
         totals = {l['id']:counts.get(l['id'],0) for l in all_locations}
+        descendants_by_id = {l['id']:[] for l in all_locations}
         for location in all_locations:
             parent = location['parent_id']
             while parent:
                 totals[parent] += counts.get(location['id'],0)
+                descendants_by_id[parent].append(location['id'])
                 parent = by_id[parent]['parent_id']
         hidden = {r['location_id'] for r in rows('SELECT location_id FROM cabinet_drawers')}
-        locations = [dict(l, count=totals[l['id']]) for l in all_locations if l['id'] not in hidden]
+        locations = [dict(l, count=totals[l['id']], descendants=descendants_by_id[l['id']]) for l in all_locations if l['id'] not in hidden]
         return render_template('storage.html', locations=locations, organizers={c['location_id']:dict(c) for c in rows('SELECT * FROM cabinets')})
 
     @app.route('/projects', methods=['GET', 'POST'])
@@ -639,6 +643,11 @@ def create_app(test_config=None):
                 flash('Build undone. Deducted parts returned to stock.')
         return redirect(url_for('project',project_id=project_id))
 
+    @app.template_filter('unitmoney')
+    def unitmoney(value):
+        amount=Decimal(str(value))
+        return format(amount, '.6f').rstrip('0').rstrip('.') if amount and abs(amount)<1 else format(amount,'.2f')
+
     @app.get('/labels')
     def labels():
         items = rows('SELECT * FROM components ORDER BY name')
@@ -666,6 +675,10 @@ def create_app(test_config=None):
         for item in items:
             item['stock'] = f"{item['stock']:g}"
             item['tags'] = ', '.join(r['name'] for r in rows('SELECT t.name FROM tags t JOIN component_tags ct ON ct.tag_id=t.id WHERE ct.component_id=? ORDER BY t.name', (item['id'],)))
+        if options['mode']=='barcode':
+            invalid_codes=[item for item in items if not item['code'] or any(ord(c)<32 or ord(c)>126 for c in item['code'])]
+            if invalid_codes:
+                raise ValueError('Code 128 requires printable ASCII. Use QR or an ASCII-only barcode value. Affected parts: '+', '.join(item['name'] for item in invalid_codes))
         pdf = render_pdf(items, options)
         if preview and request.args.get('render') == 'image':
             return render_template('label_preview.html', image=base64.b64encode(preview_png(pdf)).decode('ascii'))

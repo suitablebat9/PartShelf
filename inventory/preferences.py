@@ -3,7 +3,7 @@ import json
 from flask import g, request, render_template, redirect, flash, abort
 
 THEMES = [('default','Partshelf blue'),('forest','Forest green'),('violet','Violet'),('amber','Warm amber'),('slate','Slate')]
-NAV = [('inventory','Inventory','/','▤'),('projects','Projects','/projects','▱'),('storage','Storage areas','/storage','▥'),('labels','Label studio','/labels','▧'),('management','Team management','/management','▦'),('analytics','Analytics','/management/analytics','▥'),('feedback','Feedback & ideas','/feedback','♡'),('inbox','Feedback inbox','/management/feedback','✉'),('roadmap','Edit roadmap','/management/roadmap','▱')]
+NAV = [('inventory','Inventory','/','▤'),('projects','Projects','/projects','▱'),('storage','Storage areas','/storage','▥'),('labels','Label studio','/labels','▧'),('management','Team management','/management','▦'),('analytics','Analytics','/management/analytics','▥'),('feedback','Feedback & ideas','/feedback','♡'),('inbox','Feedback inbox','/management/feedback','✉'),('roadmap','Roadmap','/management/roadmap','▱'),('site','Public site settings','/management/site','⚙')]
 
 def install_preferences(app,db):
     with app.app_context():
@@ -15,7 +15,7 @@ def install_preferences(app,db):
         row=db().execute('SELECT * FROM user_preferences WHERE user_id=?',(user['id'],)).fetchone() if user and not getattr(g,'demo',False) else None
         choices=[]
         for key,label,url,icon in NAV:
-            if key in ('analytics','inbox','roadmap') and not (user and user['platform_admin']): continue
+            if key in ('analytics','inbox','roadmap','site') and not (user and user['platform_admin']): continue
             if key=='management':
                 if not user or not (user['platform_admin'] or user['role'] in ('owner','admin')): continue
                 label='Client management' if user['platform_admin'] else label

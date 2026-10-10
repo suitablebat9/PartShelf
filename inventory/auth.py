@@ -254,7 +254,7 @@ def install_auth(app, db):
 
     @bp.get('/account')
     def account():
-        return render_template('account.html', account=g.user, mail_ready=mail_ready(), google_ready=google_ready(), passkey_ready=passkey_ready(),
+        return render_template('account.html', session_count=db().execute('SELECT COUNT(*) FROM auth_sessions WHERE user_id=? AND expires>?',(g.user['id'],int(time.time()))).fetchone()[0], account=g.user, mail_ready=mail_ready(), google_ready=google_ready(), passkey_ready=passkey_ready(),
                                keys=db().execute('SELECT id,name,created FROM passkeys WHERE user_id=?', (g.user['id'],)).fetchall(),
                                recovery_count=db().execute('SELECT COUNT(*) FROM recovery_codes WHERE user_id=?', (g.user['id'],)).fetchone()[0])
 

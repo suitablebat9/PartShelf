@@ -16,6 +16,21 @@ def install_roadmap(app,bp,db,admin,auth):
     @admin
     def roadmap_admin():
         if request.method=='POST':
+            if request.form.get('action')=='move':
+                db().execute('BEGIN IMMEDIATE')
+                items=db().execute('SELECT * FROM roadmap ORDER BY position,id DESC').fetchall()
+                index=next((i for i,item in enumerate(items) if str(item['id'])==request.form.get('id')),None)
+                if index is None: abort(404)
+                if str(items[index]['revision'])!=request.form.get('revision'): abort(409)
+                direction=request.form.get('direction')
+                if direction not in ('up','down'): abort(400)
+                other=index+(-1 if direction=='up' else 1)
+                if 0<=other<len(items):
+                    items[index],items[other]=items[other],items[index]
+                    for position,item in enumerate(items):
+                        db().execute('UPDATE roadmap SET position=?,revision=revision+1 WHERE id=?',(position,item['id']))
+                db().commit()
+                return redirect(url_for('community.roadmap_admin'))
             title=request.form.get('title','').strip()
             description=request.form.get('description','').strip()
             status=request.form.get('status','Planned')

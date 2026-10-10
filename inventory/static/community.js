@@ -18,5 +18,5 @@ if(traffic){
       document.querySelector('#traffic-status').textContent='Updated '+new Date().toLocaleTimeString();
     }catch{document.querySelector('#traffic-status').textContent='Could not refresh visitor counts. Reconnecting…';}
   }
-  setInterval(refreshTraffic,15000);document.addEventListener('visibilitychange',refreshTraffic);
+  refreshTraffic();setInterval(refreshTraffic,15000);document.addEventListener('visibilitychange',refreshTraffic);
 }

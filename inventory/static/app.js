@@ -150,8 +150,9 @@ if(labelForm){
     const body=new FormData(labelForm);body.delete('component_ids');body.set('copies','1');
     try{
       const response=await fetch('/labels/pdf?preview=1&render=image',{method:'POST',body,signal:controller.signal});
-      const html=await response.text();if(version!==revision)return;
-      previewFrame.srcdoc=html;status.textContent=response.ok?'':'Preview could not be generated. Check the message below.';
+      if(version!==revision)return;
+      if(!response.ok){const problem=await response.json();previewFrame.hidden=true;status.textContent=problem.error||'Preview unavailable.';return}
+      const html=await response.text();previewFrame.hidden=false;previewFrame.srcdoc=html;status.textContent='';
     }catch(error){if(error.name!=='AbortError'&&version===revision)status.textContent='Could not update preview. Check your connection and try again.'}
   }
   function schedulePreview(immediate=false){clearTimeout(timer);controller?.abort();const version=++revision;status.textContent='Updating preview…';timer=setTimeout(()=>updatePreview(version),immediate?0:400)}
@@ -160,7 +161,7 @@ if(labelForm){
   labelForm.addEventListener('change',settingsChanged);
   labelForm.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.tagName==='INPUT'){e.preventDefault();schedulePreview(true)}});
   labelForm.addEventListener('submit',e=>{
-    if(!checkboxes.some(c=>c.checked)){e.preventDefault();alert('Select at least one component.');}
+    if(!checkboxes.some(c=>c.checked)){e.preventDefault();document.querySelector('#label-validation').textContent='Select at least one component to download.';}
   });
   countLabels();
 }
