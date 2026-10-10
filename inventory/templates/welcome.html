@@ -4,11 +4,11 @@
 <p class="lead">Track components, organize storage, plan project purchases, and print labels. Free to use, with shared workspaces for your team.</p>
 <div class="actions">{% if g.user and not g.demo %}<a class="button" href="/">Open inventory</a>{% else %}<a class="button" href="/register">Create a workspace</a><a class="button secondary sign-in-cta" href="/login">Sign in</a>{% endif %}<a class="button secondary" href="/demo">Try the demo</a></div>
 </section>
-<figure class="product-preview"><a href="/demo"><img src="{{ url_for('static',filename='branding/product-preview.png') }}" width="1440" height="1000" alt="Partshelf sample inventory with component names, storage locations, quantities, prices, and stock filters" loading="lazy"></a><figcaption>Sample inventory. <a href="/demo">Explore the working demo →</a></figcaption></figure>
+<figure class="product-preview"><a href="/demo"><picture><source media="(max-width:700px)" srcset="{{ url_for('static',filename='branding/product-preview-mobile.png') }}"><img src="{{ url_for('static',filename='branding/product-preview.png') }}" width="1080" height="660" alt="Current Partshelf sample inventory showing resistor quantities and storage locations" loading="lazy"></picture></a><figcaption>Sample parts in the current Partshelf interface. <a href="/demo">Try this inventory →</a></figcaption></figure>
 <section class="public-grid" aria-label="Features">
-<article><h2>1. Add a part</h2><p>Enter a name and quantity, choose its storage location, or import your parts from a CSV.</p></article>
-<article><h2>2. Find it in storage</h2><p>Browse rooms, cabinets, and drawers to see exactly where your parts belong.</p></article>
-<article><h2>3. Plan a build</h2><p>Make a parts list, check shortages, and estimate the cost of units or whole packs.</p></article>
+<article><h2>1. Add a part</h2><p>Add a 10kΩ resistor with its quantity and internal part number, RES-10K-0603. Import a CSV when you have a whole collection to add.</p></article>
+<article><h2>2. Find it in storage</h2><p>Find that resistor under Electronics lab → Component cabinet → Passive components in the sample inventory.</p></article>
+<article><h2>3. Plan a build</h2><p>The sample Wi-Fi environmental sensor needs four of those resistors. Check availability before deducting parts for a build.</p></article>
 </section>
 
 <section class="public-copy"><h2>Feedback & requests</h2><p>Report a problem or suggest a change, however small or large.</p><a href="/feedback">Send feedback</a></section>

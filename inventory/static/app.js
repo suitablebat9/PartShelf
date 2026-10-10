@@ -181,7 +181,7 @@ storageSearch?.addEventListener('input',()=>{const q=storageSearch.value.toLocal
 const buildForm=document.querySelector('#build-form');
 if(buildForm){
  const count=buildForm.elements.build_count,parts=[...buildForm.querySelectorAll('[data-build-part]')],status=document.querySelector('#build-readiness'),button=buildForm.querySelector('button');
- function updateBuild(){const n=Number(count.value),missing=[];parts.forEach(row=>{const required=Number(row.dataset.quantity)*n,shortage=Math.max(0,required-Number(row.dataset.stock));row.textContent=`${required.toLocaleString()} ${row.dataset.unit} · ${row.dataset.name}`;row.classList.toggle('low-stock',shortage>0);if(shortage)missing.push(`${shortage.toLocaleString()} ${row.dataset.unit==='pcs'&&shortage===1?'pc':row.dataset.unit} of ${row.dataset.name}`)});button.disabled=!count.checkValidity()||!count.value||missing.length>0;status.textContent=missing.length?'Cannot build yet: missing '+missing.join(', '):button.disabled?'Choose a valid build quantity.':'Ready to build.';return !button.disabled}
+ function updateBuild(){const n=Number(count.value),missing=[];parts.forEach(row=>{const required=Number(row.dataset.quantity)*n,shortage=Math.max(0,required-Number(row.dataset.stock));row.textContent=`${required.toLocaleString()} ${row.dataset.unit} · ${row.dataset.name}`;row.classList.toggle('low-stock',shortage>0);if(shortage)missing.push(`${shortage.toLocaleString()} ${row.dataset.unit==='pcs'&&shortage===1?'pc':row.dataset.unit} of ${row.dataset.name}`)});button.disabled=!count.checkValidity()||!count.value||missing.length>0;status.dataset.ready=String(!button.disabled);status.textContent=missing.length?'Cannot build yet: missing '+missing.join(', '):button.disabled?'Choose a valid build quantity.':'Ready to build.';return !button.disabled}
  count.addEventListener('input',updateBuild);buildForm.addEventListener('submit',e=>{if(!updateBuild()||!confirm('Deduct these parts?\n'+parts.map(row=>row.textContent).join('\n')))e.preventDefault()});
 }
 if(labelForm){
@@ -208,3 +208,6 @@ if(labelForm){function syncPreset(){const scale=labelForm.elements.dimension_uni
 
 const footerMore=document.querySelector('.footer-more');
 if(footerMore){document.addEventListener('click',e=>{if(!footerMore.contains(e.target))footerMore.open=false});document.addEventListener('keydown',e=>{if(e.key==='Escape'&&footerMore.open){footerMore.open=false;footerMore.querySelector('summary').focus()}})}
+
+const stockToggle=document.querySelector('#stock-toggle'),stockPanel=document.querySelector('#adjust-stock');
+if(stockToggle&&stockPanel){const mobile=matchMedia('(max-width:700px)');function showStock(open){stockPanel.hidden=!open;stockToggle.setAttribute('aria-expanded',String(open))}function stockLayout(){showStock(!mobile.matches)}stockLayout();mobile.addEventListener('change',stockLayout);stockToggle.addEventListener('click',()=>{const open=mobile.matches?stockPanel.hidden:true;showStock(open);if(open){stockPanel.scrollIntoView({block:'nearest',behavior:'smooth'});stockPanel.querySelector('[name=quantity]').focus({preventScroll:true})}})}

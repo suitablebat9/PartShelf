@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS project_items(project_id INTEGER REFERENCES projects(
 
 def create_app(test_config=None):
     app = Flask(__name__)
-    asset_versions = {name: hashlib.sha256((Path(app.static_folder) / name).read_bytes()).hexdigest()[:12] for name in ('scanner.js', 'workflows.js', 'app.css', 'app.js', 'auth.js', 'community.js', 'donation.css', 'layout.css', 'drawers.css', 'drawers.js')}
+    asset_versions = {name: hashlib.sha256((Path(app.static_folder) / name).read_bytes()).hexdigest()[:12] for name in ('branding/product-preview.png', 'branding/product-preview-mobile.png', 'scanner.js', 'workflows.js', 'app.css', 'app.js', 'auth.js', 'community.js', 'donation.css', 'layout.css', 'drawers.css', 'drawers.js')}
 
     @app.url_defaults
     def version_static_assets(endpoint, values):
