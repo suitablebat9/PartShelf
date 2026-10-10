@@ -16,4 +16,4 @@ Implemented from the supplied October 9 review:
 
 Validation: automated regression coverage includes descendant filtering, moves/cycle rejection, numeric low-stock thresholds, minimal creation, search return safety, multi-build stock accounting, undo replay/deletion safety, viewer restrictions, signup session creation and physical label unit equivalence. Browser checks cover search context, minimal entry, disabled shortages, live metric previews, filtered selection, light/dark phone layouts and fixed-footer clearance.
 
-The review's larger product opportunities remain separate: CSV/BOM import, supplier shopping-list export, duplication, bulk inventory actions, camera scanning and a general help center. No client data or reviewer test records were changed to populate public content.
+The larger product opportunities have now shipped; see [workflow features](WORKFLOWS.md) for CSV/BOM import, supplier shopping-list export, project duplication, bulk inventory actions, camera/photo scanning and the help center. No client data or reviewer test records were changed to populate public content.

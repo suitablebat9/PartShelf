@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS project_items(project_id INTEGER REFERENCES projects(
 
 def create_app(test_config=None):
     app = Flask(__name__)
-    asset_versions = {name: hashlib.sha256((Path(app.static_folder) / name).read_bytes()).hexdigest()[:12] for name in ('app.css', 'app.js', 'auth.js', 'community.js', 'donation.css', 'layout.css', 'drawers.css', 'drawers.js')}
+    asset_versions = {name: hashlib.sha256((Path(app.static_folder) / name).read_bytes()).hexdigest()[:12] for name in ('scanner.js', 'workflows.js', 'app.css', 'app.js', 'auth.js', 'community.js', 'donation.css', 'layout.css', 'drawers.css', 'drawers.js')}
 
     @app.url_defaults
     def version_static_assets(endpoint, values):
@@ -162,20 +162,21 @@ def create_app(test_config=None):
             if request.method == 'GET' and request.endpoint:
                 session['login_destination'] = request.full_path.rstrip('?')
             return redirect(url_for('community.welcome') if request.path=='/' else url_for('login'))
-        inventory_writes = ('delete_component', 'edit_component', 'adjust_stock', 'storage', 'projects', 'project', 'add_to_project', 'consume', 'undo_build')
+        from .workflows import WRITE_ENDPOINTS
+        inventory_writes = WRITE_ENDPOINTS + ('delete_component', 'edit_component', 'adjust_stock', 'storage', 'projects', 'project', 'add_to_project', 'consume', 'undo_build')
         if g.user and request.method == 'POST' and request.endpoint in inventory_writes:
             if sum(len(value.encode('utf-8')) for _, value in request.form.items(multi=True)) > 65536:
                 raise ValueError('Keep the text fields in one submission under 64 KB.')
             path = demo['path'] if g.demo else Path(app.config['DATABASE']) if g.workspace['id'] == 1 else workspace_directory(app, g.workspace['id'])/'inventory.db'
             size = sum(candidate.stat().st_size for candidate in (path, Path(str(path)+'-wal')) if candidate.exists())
-            if request.endpoint in ('edit_component', 'storage', 'projects', 'project') and size > (20 if g.demo else int(os.environ.get('WORKSPACE_DATABASE_LIMIT_MB', '256'))) * 1024 * 1024:
+            if request.endpoint in WRITE_ENDPOINTS + ('edit_component', 'storage', 'projects', 'project') and size > (20 if g.demo else int(os.environ.get('WORKSPACE_DATABASE_LIMIT_MB', '256'))) * 1024 * 1024:
                 raise ValueError('Your workspace database capacity has been reached. Contact support.')
         if g.user and g.user['role'] == 'viewer' and (request.method == 'POST' and request.endpoint in inventory_writes or request.method == 'GET' and request.endpoint == 'edit_component'):
             abort(403, 'Your workspace role is read-only.')
 
     @app.after_request
     def headers(response):
-        if getattr(g, 'user', None) and getattr(g, 'workspace', None) and request.method == 'POST' and response.status_code < 400 and request.endpoint in ('edit_component', 'adjust_stock', 'consume', 'undo_build'):
+        if getattr(g, 'user', None) and getattr(g, 'workspace', None) and request.method == 'POST' and response.status_code < 400 and request.endpoint in ('edit_component', 'adjust_stock', 'consume', 'undo_build', 'workflows.confirm'):
             db().execute('DELETE FROM stock_alerts WHERE component_id IN (SELECT id FROM components WHERE low_stock IS NULL OR stock>CAST(low_stock AS REAL))')
             db().commit()
         response.headers['X-Content-Type-Options'] = 'nosniff'
@@ -189,6 +190,8 @@ def create_app(test_config=None):
         if request.endpoint == 'community.donation_embed':
             response.headers['X-Frame-Options'] = 'SAMEORIGIN'
             response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self' https://js.stripe.com; frame-src https://js.stripe.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'"
+        if request.endpoint == 'workflows.scan':
+            response.headers['Content-Security-Policy'] = response.headers['Content-Security-Policy'].replace("img-src 'self' data:", "img-src 'self' data: blob:") + "; media-src 'self' blob:"
         if request.endpoint == 'labels_pdf':
             response.headers['Content-Security-Policy'] = response.headers['Content-Security-Policy'].replace("frame-ancestors 'none'", "frame-ancestors 'self'")
         if request.endpoint != 'static':
@@ -314,10 +317,15 @@ def create_app(test_config=None):
         all_items = rows('SELECT stock,unit_price,low_stock FROM components')
         return dict(low=sum(r['low_stock'] is not None and r['stock']<=float(r['low_stock']) for r in all_items), storage_count=db().execute('SELECT COUNT(*) FROM locations WHERE id NOT IN (SELECT location_id FROM cabinet_drawers)').fetchone()[0], items=items, facets=facets, tags=rows('SELECT * FROM tags ORDER BY name'), categories=rows('SELECT * FROM categories ORDER BY name'), locations=location_options(), suppliers=rows("SELECT DISTINCT supplier FROM components WHERE supplier!='' ORDER BY supplier"), total=len(all_items), empty=sum(r['stock']==0 for r in all_items), value=sum(Decimal(str(r['stock']))*Decimal(r['unit_price']) for r in all_items))
 
+    from .workflows import install_workflows
+    install_workflows(app, db, number, safe_url, location_options)
+
     @app.get('/')
     @app.get('/search')
     def index():
-        return render_template('inventory.html', **component_search())
+        milestones={r['key'] for r in rows('SELECT key FROM workspace_milestones')}
+        setup=dict(storage=bool(db().execute('SELECT 1 FROM locations LIMIT 1').fetchone()),components=bool(db().execute('SELECT 1 FROM components LIMIT 1').fetchone()),labels='labels_downloaded' in milestones,project=bool(db().execute('SELECT 1 FROM projects LIMIT 1').fetchone()))
+        return render_template('inventory.html', setup=setup, show_setup='setup_hidden' not in milestones and not all(setup.values()), **component_search())
 
     def uploaded(field, current):
         file = request.files.get(field)
@@ -660,6 +668,9 @@ def create_app(test_config=None):
         pdf = render_pdf(items, options)
         if preview and request.args.get('render') == 'image':
             return render_template('label_preview.html', image=base64.b64encode(preview_png(pdf)).decode('ascii'))
+        if not preview:
+            db().execute("INSERT OR REPLACE INTO workspace_milestones(key) VALUES('labels_downloaded')")
+            db().commit()
         return send_file(pdf, mimetype='application/pdf', as_attachment=not preview, download_name='partshelf-labels.pdf')
 
     @app.get('/codes/<int:item_id>/<mode>')
