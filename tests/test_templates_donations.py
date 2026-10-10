@@ -4,9 +4,10 @@ from test_community_projects import make_admin
 
 def test_donation_embed_confirmation_and_scoped_csp(app,client):
     c=app.test_client()
-    thanks=c.get('/donation/thank-you?amount=999&success=true')
+    # A three-digit marker can randomly occur in CSRF tokens or asset hashes.
+    thanks=c.get('/donation/thank-you?amount=987654321.123456&success=true')
     assert thanks.status_code==200 and b'Thank you for supporting' in thanks.data
-    assert b'not a payment receipt' in thanks.data and b'999' not in thanks.data
+    assert b'not a payment receipt' in thanks.data and b'987654321.123456' not in thanks.data
     assert 'noindex' in thanks.headers['X-Robots-Tag']
     assert b'/donation/thank-you' not in c.get('/sitemap.xml').data
     embed=c.get('/donation/embed')
