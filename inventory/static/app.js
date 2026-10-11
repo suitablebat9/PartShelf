@@ -111,7 +111,7 @@ if(filterForm){
   const status=document.querySelector('#filter-status'),results=document.querySelector('#inventory-results');
   let timer,controller,revision=0;
   async function applyFilters(version){
-    controller=new AbortController();const url=filterForm.getAttribute('action')+'?'+new URLSearchParams(new FormData(filterForm));
+    controller=new AbortController();const params=new URLSearchParams(new FormData(filterForm));const buildCount=document.querySelector('#build-form [name=build_count]');if(buildCount)params.set('builds',buildCount.value);const url=filterForm.getAttribute('action')+'?'+params;
     try{
       const response=await fetch(url,{signal:controller.signal});
       if(!response.ok)throw new Error('Request failed');
@@ -139,7 +139,7 @@ document.querySelector('#label-preset')?.addEventListener('change',e=>{if(e.targ
 const labelForm=document.querySelector('#label-form');
 if(labelForm){
   const checkboxes=[...labelForm.querySelectorAll('[name="component_ids"]')];
-  function countLabels(){const count=checkboxes.filter(c=>c.checked).length;document.querySelector('#label-count').textContent=`${count} ${count===1?'component':'components'} · ${count*Number(labelForm.elements.copies.value||0)} ${count*Number(labelForm.elements.copies.value||0)===1?'label':'labels'}`}
+  function countLabels(){const count=checkboxes.filter(c=>c.checked).length;document.querySelector('#label-selection-link').textContent=`${count} ${count===1?'part':'parts'} selected · Choose parts ↓`;document.querySelector('#label-count').textContent=`${count} ${count===1?'component':'components'} · ${count*Number(labelForm.elements.copies.value||0)} ${count*Number(labelForm.elements.copies.value||0)===1?'label':'labels'}`}
   document.querySelector('#select-all-labels').addEventListener('click',()=>{checkboxes.filter(c=>!c.closest('label').hidden).forEach(c=>c.checked=true);countLabels()});
   document.querySelector('#clear-labels').addEventListener('click',()=>{checkboxes.forEach(c=>c.checked=false);countLabels()});
   let batchEdited=false;labelForm.querySelector('.label-batch').addEventListener('change',e=>{if(e.target.name==='component_ids')batchEdited=true});['select-all-labels','clear-labels'].forEach(id=>document.getElementById(id).addEventListener('click',()=>{batchEdited=true}));document.querySelector('#label-component').addEventListener('change',e=>{if(!batchEdited){checkboxes.forEach(c=>c.checked=c.value===e.target.value);countLabels()}});
@@ -184,7 +184,7 @@ const buildForm=document.querySelector('#build-form');
 if(buildForm){
  const count=buildForm.elements.build_count,parts=[...buildForm.querySelectorAll('[data-build-part]')],status=document.querySelector('#build-readiness'),button=buildForm.querySelector('button');
  function updateBuild(){const n=Number(count.value),missing=[];parts.forEach(row=>{const required=Number(row.dataset.quantity)*n,shortage=Math.max(0,required-Number(row.dataset.stock));row.textContent=`${required.toLocaleString()} ${row.dataset.unit} · ${row.dataset.name}`;row.classList.toggle('low-stock',shortage>0);if(shortage)missing.push(`${shortage.toLocaleString()} ${row.dataset.unit==='pcs'&&shortage===1?'pc':row.dataset.unit} of ${row.dataset.name}`)});button.disabled=!count.checkValidity()||!count.value||missing.length>0;status.dataset.ready=String(!button.disabled);status.textContent=missing.length?'Cannot build yet: missing '+missing.join(', '):button.disabled?'Choose a valid build quantity.':'Ready to build.';return !button.disabled}
- count.addEventListener('input',updateBuild);buildForm.addEventListener('submit',e=>{if(!updateBuild()||!confirm('Deduct these parts?\n'+parts.map(row=>row.textContent).join('\n')))e.preventDefault()});
+ count.addEventListener('input',updateBuild);updateBuild();buildForm.addEventListener('submit',e=>{if(!updateBuild()||!confirm('Deduct these parts?\n'+parts.map(row=>row.textContent).join('\n')))e.preventDefault()});
 }
 if(labelForm){
  const unit=document.querySelector('#label-unit'),dimensions=[...labelForm.querySelectorAll('[name=width],[name=height],[name^=margin_]')];let previousUnit='in';

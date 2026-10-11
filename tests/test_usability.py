@@ -29,7 +29,7 @@ def test_low_stock_numeric_threshold_and_no_threshold(client):
 def test_basic_part_without_purchase_details_and_context(client):
     assert post(client, '/components/new', name='Basic part', stock='0').status_code == 302
     page=client.get('/components/1?back=/search%3Fq%3DBasic').data
-    assert b'href="/search?q=Basic"' in page and b'$0.00' in page
+    assert b'href="/search?q=Basic"' in page and b'Price not set' in page
     page=client.get('/components/1?back=https://evil.example/').data
     assert b'https://evil.example' not in page
 

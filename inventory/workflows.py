@@ -8,6 +8,7 @@ import secrets
 import time
 from decimal import Decimal, ROUND_CEILING
 from functools import wraps
+from urllib.parse import urlsplit
 
 from flask import Blueprint, abort, flash, g, redirect, render_template, request, Response, session, url_for
 
@@ -212,8 +213,11 @@ def install_workflows(app, db, number, safe_url, location_options):
     def bulk():
         source={key:request.form.get(key,'') for key in ('action','location_id','tags','quantity','reason')}
         source['ids']=list(dict.fromkeys(request.form.getlist('component_ids')))
+        back=request.form.get('back','')
+        parsed=urlsplit(back)
+        if parsed.scheme or parsed.netloc or parsed.path not in ('/','/search') or '\\' in back or any(ord(c)<32 for c in back): back=''
         try:
-            return stage('bulk',source,bulk_plan(source),('/search?location_id='+str(int(source['location_id']))) if source['action']=='move' and source['location_id'].isdigit() else url_for('index'))
+            return stage('bulk',source,bulk_plan(source),back or (('/search?location_id='+str(int(source['location_id']))) if source['action']=='move' and source['location_id'].isdigit() else url_for('index')))
         except ValueError as error:
             flash(str(error),'error')
             return redirect(url_for('index'))
@@ -286,8 +290,8 @@ def install_workflows(app, db, number, safe_url, location_options):
     @bp.get('/projects/<int:project_id>/shopping-list')
     def shopping_list(project_id):
         project=one('SELECT * FROM projects WHERE id=?',(project_id,))
-        builds=number(request.args.get('builds','1'),1)
-        if builds>10000 or builds!=builds.to_integral_value(): raise ValueError('Choose a whole number of builds from 1 to 10,000.')
+        from .planning import build_count
+        builds=build_count(request.args.get('builds','1'))
         items=[]
         for row in db().execute('SELECT c.*,i.quantity FROM components c JOIN project_items i ON i.component_id=c.id WHERE i.project_id=? ORDER BY c.supplier COLLATE NOCASE,c.name',(project_id,)):
             shortage=max(Decimal(0),Decimal(str(row['quantity']))*builds-Decimal(str(row['stock'])))
@@ -297,7 +301,7 @@ def install_workflows(app, db, number, safe_url, location_options):
             items.append(dict(row,shortage=shortage,packs=packs,purchase_units=packs*pack,exact_cost=shortage*price,pack_cost=packs*pack*price))
         if request.args.get('download')=='csv':
             headers=('supplier','name','name_id','shortage','unit','unit_price_usd','exact_cost_usd','packs','units_per_pack','purchase_units','package_cost_usd','supplier_url')
-            return csv_response(f'partshelf-project-{project_id}-shopping.csv',headers,[[i['supplier'],i['name'],i['name_id'],i['shortage'],i['unit'],i['unit_price'],i['exact_cost'],i['packs'],i['purchase_pack'],i['purchase_units'],i['pack_cost'],i['supplier_url']] for i in items])
+            return csv_response(f'partshelf-project-{project_id}-shopping.csv',headers,[[i['supplier'],i['name'],i['name_id'],i['shortage'],i['unit'],i['unit_price'] if i['price_recorded'] else '',i['exact_cost'] if i['price_recorded'] else '',i['packs'],i['purchase_pack'],i['purchase_units'],i['pack_cost'] if i['price_recorded'] else '',i['supplier_url']] for i in items])
         return render_template('shopping_list.html',project=project,items=items,builds=int(builds),total=sum(i['pack_cost'] for i in items))
 
     @bp.post('/help/dismiss-setup')

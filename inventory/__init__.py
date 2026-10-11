@@ -209,6 +209,10 @@ def create_app(test_config=None):
             return render_template('label_error.html',message=str(error)),400
         return render_template('error.html', message=str(error)), 400
 
+    @app.errorhandler(500)
+    def server_error(error):
+        return render_template('server_error.html'), 500
+
     @app.errorhandler(sqlite3.IntegrityError)
     def conflict(error):
         return render_template('error.html', message='That identifier already exists, or the selected record is still in use. Return to the form and check your values.'), 409
@@ -319,10 +323,10 @@ def create_app(test_config=None):
         sort = {'name': 'c.name COLLATE NOCASE', 'stock_asc': 'c.stock', 'stock_desc': 'c.stock DESC', 'price': 'CAST(c.unit_price AS REAL)', 'new': 'c.id DESC'}.get(request.args.get('sort'), 'c.name COLLATE NOCASE')
         query = 'SELECT c.*,cat.name AS category,l.name AS location FROM components c LEFT JOIN categories cat ON cat.id=c.category_id LEFT JOIN locations l ON l.id=c.location_id'
         items = rows(query + (' WHERE ' + ' AND '.join(clauses) if clauses else '') + ' ORDER BY ' + sort, params)
-        all_items = rows('SELECT stock,unit_price,low_stock FROM components')
+        all_items = rows('SELECT stock,unit_price,low_stock,price_recorded FROM components')
         locations = location_options()
         drawer_ids = {r['location_id'] for r in rows('SELECT location_id FROM cabinet_drawers')}
-        return dict(low=sum(r['low_stock'] is not None and r['stock']<=float(r['low_stock']) for r in all_items), storage_count=db().execute('SELECT COUNT(*) FROM locations WHERE id NOT IN (SELECT location_id FROM cabinet_drawers)').fetchone()[0], items=items, facets=facets, tags=rows('SELECT * FROM tags ORDER BY name'), categories=rows('SELECT * FROM categories ORDER BY name'), locations=locations, filter_locations=[l for l in locations if l['id'] not in drawer_ids], suppliers=rows("SELECT DISTINCT supplier FROM components WHERE supplier!='' ORDER BY supplier"), total=len(all_items), empty=sum(r['stock']==0 for r in all_items), value=sum(Decimal(str(r['stock']))*Decimal(r['unit_price']) for r in all_items))
+        return dict(unpriced_inventory=sum(not r['price_recorded'] for r in all_items), low=sum(r['low_stock'] is not None and r['stock']<=float(r['low_stock']) for r in all_items), storage_count=db().execute('SELECT COUNT(*) FROM locations WHERE id NOT IN (SELECT location_id FROM cabinet_drawers)').fetchone()[0], items=items, facets=facets, tags=rows('SELECT * FROM tags ORDER BY name'), categories=rows('SELECT * FROM categories ORDER BY name'), locations=locations, filter_locations=[l for l in locations if l['id'] not in drawer_ids], suppliers=rows("SELECT DISTINCT supplier FROM components WHERE supplier!='' ORDER BY supplier"), total=len(all_items), empty=sum(r['stock']==0 for r in all_items), value=sum(Decimal(str(r['stock']))*Decimal(r['unit_price']) for r in all_items))
 
     from .workflows import install_workflows
     install_workflows(app, db, number, safe_url, location_options)
@@ -604,10 +608,12 @@ def create_app(test_config=None):
             db().commit()
             flash('Required quantity updated.' if quantity else 'Component removed from project.')
             return redirect(url_for('project', project_id=project_id))
+        from .planning import build_count
+        count = build_count(request.args.get('builds','1'))
         items = [dict(r) for r in rows('SELECT c.*,i.quantity FROM project_items i JOIN components c ON c.id=i.component_id WHERE i.project_id=? ORDER BY c.name', (project_id,))]
         for row in items:
-            row['shortage'] = max(Decimal('0'), Decimal(str(row['quantity']))-Decimal(str(row['stock'])))
-            row['cost'] = Decimal(str(row['quantity'])) * Decimal(row['unit_price'])
+            row['shortage'] = max(Decimal('0'), Decimal(str(row['quantity']))*count-Decimal(str(row['stock'])))
+            row['cost'] = Decimal(str(row['quantity'])) * count * Decimal(row['unit_price'])
             row['buy_cost'] = Decimal(str(row['shortage'])) * Decimal(row['unit_price'])
             pack = Decimal(row['purchase_pack'])
             row['packs'] = (Decimal(str(row['shortage'])) / pack).to_integral_value(rounding=ROUND_CEILING)
@@ -617,7 +623,7 @@ def create_app(test_config=None):
         components = search.pop('items')
         for key in ('total','empty','value'):
             search.pop(key)
-        return render_template('project.html', builds=rows('SELECT * FROM project_builds WHERE project_id=? ORDER BY id DESC LIMIT 20',(project_id,)), can_build=bool(items) and not any(r['shortage'] for r in items), project=project, items=items, components=components,
+        return render_template('project.html', build_count=count, builds=rows('SELECT * FROM project_builds WHERE project_id=? ORDER BY id DESC LIMIT 20',(project_id,)), can_build=bool(items) and not any(r['shortage'] for r in items), project=project, items=items, components=components,
             needed={r['id']:r['quantity'] for r in items}, total=sum(r['cost'] for r in items), buy=sum(r['buy_cost'] for r in items),
             package_buy=sum(r['package_cost'] for r in items), filter_action=url_for('project',project_id=project_id), **search)
 

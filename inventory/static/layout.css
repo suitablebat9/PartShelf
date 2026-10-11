@@ -144,3 +144,19 @@ html{background:var(--bg)}
 }
 @media(max-width:700px){.workspace-overview .stats{flex-wrap:nowrap;overflow-x:auto;gap:20px;padding:8px 0}.workspace-overview .stats article{flex:0 0 auto;min-width:0}.workspace-overview .stats a{display:block}.workspace-overview .stats strong{font-size:17px}.workspace-overview .stats span{font-size:11px}}
 @media print{body[data-theme],body[data-palette]{--text:#000;--muted:#333;--bg:#fff;--panel:#fff;--line:#aaa;--accent:#000;--sidebar:#fff}main .muted,main small{color:#333!important}}
+/* October 11: daily tasks first, quieter supporting information. */
+.public-copy .prose{max-width:70ch}.inventory-file-menu [data-print]{display:block;width:100%;text-align:left;padding:10px;font:inherit;font-size:13px}
+#organizer-preview{font-weight:600;font-size:16px;padding:12px 0}.mini-drawer-grid{max-width:360px;gap:4px}.mini-drawer-grid span{height:22px;background:var(--accent-soft);border-radius:2px}
+#appearance-settings>details{margin-bottom:16px}#appearance-settings>details>summary{font-size:17px;padding:8px 0}.settings-grid{margin-bottom:24px}
+#label-selection-link{display:block;font-weight:600;padding:10px 0}.label-batch:target{outline:2px solid var(--accent);outline-offset:6px}
+#bug-prompts{margin:0;line-height:1.6}.workspace-overview .stats small{font-size:11px}
+@media(max-width:700px){
+ main:has(#inventory-heading){display:flex;flex-direction:column}#inventory-heading{order:-2;flex-direction:row;align-items:center;flex-wrap:wrap;gap:8px}#inventory-heading h1{margin:0}#inventory-heading .actions{gap:8px}#overview-bar{order:-1}
+ .workspace-overview .stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));overflow:visible;gap:8px 12px;margin:0 0 10px}.workspace-overview .stats article{min-width:0}.workspace-overview .stats a{display:block}.workspace-overview .stats strong{font-size:16px;line-height:1.2}.workspace-overview .stats span{font-size:10px}
+ .inventory-table.show-extra .optional-column.empty-detail{display:none}.inventory-table.show-extra .optional-column:not(.empty-detail){font-size:12px;padding:0}.inventory-table.show-extra .optional-column:not(.empty-detail):before{display:inline;margin-right:8px}
+ .inventory-utilities .setup-banner{padding:8px 0;border-bottom:1px solid var(--line);margin-bottom:6px}.inventory-utilities .setup-checklist{padding:0}.setup-banner .skip-setup button{padding:4px 8px;min-height:32px}#inventory-results{margin-top:4px}.section-heading{margin-bottom:8px}
+}
+@media(max-width:700px){
+ main:has(#inventory-heading) .search-row{flex-wrap:nowrap}main:has(#inventory-heading) .search-row input{flex-basis:0;min-width:0}main:has(#inventory-heading) .inventory-utilities{order:2;margin-top:16px}main:has(#inventory-heading) footer{order:3}
+ #inventory-heading{display:grid;grid-template-columns:1fr auto}#inventory-heading .actions{display:contents}#inventory-heading .actions>a.button{grid-column:2;grid-row:1}#inventory-heading .inventory-more{grid-column:1/-1}#inventory-heading .inventory-more summary{padding:0;min-height:28px}
+}
