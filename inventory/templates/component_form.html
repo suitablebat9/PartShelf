@@ -1,8 +1,8 @@
 {% extends 'base.html' %}
 {% block content %}
-<header><div><span class="eyebrow">INVENTORY / {{ 'EDIT' if item.get('id') else 'NEW COMPONENT' }}</span><h1>{{ 'Edit component' if item.get('id') else 'Add component' }}</h1></div><a href="/" class="button secondary">Back to inventory</a></header>
+<header><div><span class="eyebrow">INVENTORY / {{ 'EDIT' if item.get('id') else 'NEW COMPONENT' }}</span><h1>{{ 'Edit component' if item.get('id') else 'Add component' }}</h1></div><a href="{{ back }}" class="button secondary">Back</a></header>
 <form method="post" enctype="multipart/form-data" class="form-layout" id="component-form" data-new="{{ 'false' if item.get('id') else 'true' }}">
-<input type="hidden" name="csrf" value="{{ csrf() }}"><input type="hidden" name="version" value="{{ item.get('version','') }}">
+<input type="hidden" name="csrf" value="{{ csrf() }}"><input type="hidden" name="back" value="{{ back }}"><input type="hidden" name="supplier_manual" id="supplier-manual" value="{{ 1 if item.get('supplier') else 0 }}"><input type="hidden" name="version" value="{{ item.get('version','') }}">
 <section class="panel"><h2>Basic details</h2><p class="hint">Required fields are marked *.</p><div class="form-grid">
 <label>Name *<input id="part-name" name="name" required value="{{ item.get('name','') }}"></label>
 
@@ -40,7 +40,7 @@
 <label>Datasheet URL<input name="datasheet_url" value="{{ item.get('datasheet','') }}" placeholder="https://…"></label><label>Or upload datasheet<input name="datasheet" type="file" accept="application/pdf"></label>
 <label>Image URL<input name="image_url" value="{{ item.get('image','') }}" placeholder="https://…"></label><label>Or upload image<input name="image" type="file" accept="image/png,image/jpeg,image/webp,image/gif"></label>
 </div></details>
-<div class="form-actions">{% if item.get('id') %}<a href="/components/{{ item.id }}/delete" class="button danger-button">Delete component</a>{% endif %}<a href="/" class="button secondary">Cancel</a><button>Save component</button></div>
+<div class="form-actions">{% if item.get('id') %}<a href="/components/{{ item.id }}/delete" class="button danger-button">Delete component</a>{% endif %}<a href="{{ back }}" class="button secondary">Cancel</a><button>Save component</button></div>
 </form>
 <dialog id="category-dialog" aria-labelledby="category-dialog-title"><form method="dialog"><h2 id="category-dialog-title">Create category</h2><label>Category name<input id="dialog-category-name" required maxlength="120" autofocus></label><p class="hint">Created with this component when you save.</p><div class="actions"><button type="button" data-close-dialog class="secondary">Cancel</button><button>Create category</button></div></form></dialog>
 <dialog id="storage-dialog" aria-labelledby="storage-dialog-title"><form method="dialog"><h2 id="storage-dialog-title">Create storage area</h2><label>Storage name<input id="dialog-storage-name" required maxlength="120" autofocus></label><label>Storage type<select id="dialog-storage-kind">{% for kind in ['Bin','Drawer','Cabinet','Closet','Room','Shelf','Other'] %}<option>{{ kind }}</option>{% endfor %}</select></label><label>Inside<select id="dialog-storage-parent"><option value="">Top level</option>{% for l in locations %}<option value="{{ l.id }}">{{ l.path }}</option>{% endfor %}</select></label><p class="hint">Created and assigned when you save this component.</p><div class="actions"><button type="button" data-close-dialog class="secondary">Cancel</button><button>Create storage area</button></div></form></dialog>

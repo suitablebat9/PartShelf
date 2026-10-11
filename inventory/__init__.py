@@ -3,6 +3,7 @@ import json
 import base64
 import hashlib
 import os
+import re
 import secrets
 import sqlite3
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
@@ -32,7 +33,7 @@ CREATE TABLE IF NOT EXISTS project_items(project_id INTEGER REFERENCES projects(
 
 def create_app(test_config=None):
     app = Flask(__name__)
-    asset_versions = {name: hashlib.sha256((Path(app.static_folder) / name).read_bytes()).hexdigest()[:12] for name in ('branding/product-preview.png', 'branding/product-preview-mobile.png', 'scanner.js', 'admin-ui.js', 'workflows.js', 'app.css', 'app.js', 'auth.js', 'community.js', 'donation.css', 'layout.css', 'drawers.css', 'drawers.js')}
+    asset_versions = {name: hashlib.sha256((Path(app.static_folder) / name).read_bytes()).hexdigest()[:12] for name in ('branding/product-preview.png', 'branding/product-preview-mobile.png', 'theme-init.js', 'scanner.js', 'admin-ui.js', 'workflows.js', 'app.css', 'app.js', 'auth.js', 'community.js', 'donation.css', 'layout.css', 'drawers.css', 'drawers.js')}
 
     @app.url_defaults
     def version_static_assets(endpoint, values):
@@ -194,6 +195,8 @@ def create_app(test_config=None):
             response.headers['Content-Security-Policy'] = response.headers['Content-Security-Policy'].replace("img-src 'self' data:", "img-src 'self' data: blob:") + "; media-src 'self' blob:"
         if request.endpoint == 'labels_pdf':
             response.headers['Content-Security-Policy'] = response.headers['Content-Security-Policy'].replace("frame-ancestors 'none'", "frame-ancestors 'self'")
+        if request.endpoint == 'static' and request.args.get('v') in asset_versions.values():
+            response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
         if request.endpoint != 'static':
             response.headers['Cache-Control'] = 'no-store'
         return response
@@ -219,7 +222,7 @@ def create_app(test_config=None):
     app.extensions['partshelf_inventory_db'] = db
     auth = install_auth(app, account_db)
     from .drawers import install_drawers
-    install_drawers(app, db)
+    install_drawers(app, db, lambda current: uploaded('image', current))
     app.extensions['inventory_db'] = db
     from .management import install_management
     install_management(app, account_db, auth)
@@ -317,7 +320,9 @@ def create_app(test_config=None):
         query = 'SELECT c.*,cat.name AS category,l.name AS location FROM components c LEFT JOIN categories cat ON cat.id=c.category_id LEFT JOIN locations l ON l.id=c.location_id'
         items = rows(query + (' WHERE ' + ' AND '.join(clauses) if clauses else '') + ' ORDER BY ' + sort, params)
         all_items = rows('SELECT stock,unit_price,low_stock FROM components')
-        return dict(low=sum(r['low_stock'] is not None and r['stock']<=float(r['low_stock']) for r in all_items), storage_count=db().execute('SELECT COUNT(*) FROM locations WHERE id NOT IN (SELECT location_id FROM cabinet_drawers)').fetchone()[0], items=items, facets=facets, tags=rows('SELECT * FROM tags ORDER BY name'), categories=rows('SELECT * FROM categories ORDER BY name'), locations=location_options(), suppliers=rows("SELECT DISTINCT supplier FROM components WHERE supplier!='' ORDER BY supplier"), total=len(all_items), empty=sum(r['stock']==0 for r in all_items), value=sum(Decimal(str(r['stock']))*Decimal(r['unit_price']) for r in all_items))
+        locations = location_options()
+        drawer_ids = {r['location_id'] for r in rows('SELECT location_id FROM cabinet_drawers')}
+        return dict(low=sum(r['low_stock'] is not None and r['stock']<=float(r['low_stock']) for r in all_items), storage_count=db().execute('SELECT COUNT(*) FROM locations WHERE id NOT IN (SELECT location_id FROM cabinet_drawers)').fetchone()[0], items=items, facets=facets, tags=rows('SELECT * FROM tags ORDER BY name'), categories=rows('SELECT * FROM categories ORDER BY name'), locations=locations, filter_locations=[l for l in locations if l['id'] not in drawer_ids], suppliers=rows("SELECT DISTINCT supplier FROM components WHERE supplier!='' ORDER BY supplier"), total=len(all_items), empty=sum(r['stock']==0 for r in all_items), value=sum(Decimal(str(r['stock']))*Decimal(r['unit_price']) for r in all_items))
 
     from .workflows import install_workflows
     install_workflows(app, db, number, safe_url, location_options)
@@ -327,7 +332,7 @@ def create_app(test_config=None):
     def index():
         milestones={r['key'] for r in rows('SELECT key FROM workspace_milestones')}
         setup=dict(storage=bool(db().execute('SELECT 1 FROM locations LIMIT 1').fetchone()),components=bool(db().execute('SELECT 1 FROM components LIMIT 1').fetchone()),labels='labels_downloaded' in milestones,project=bool(db().execute('SELECT 1 FROM projects LIMIT 1').fetchone()))
-        return render_template('inventory.html', setup=setup, show_setup='setup_hidden' not in milestones and not all(setup.values()), **component_search())
+        return render_template('inventory.html', drawer_parent=db().execute('SELECT * FROM cabinet_drawers WHERE location_id=?',(request.args.get('location_id'),)).fetchone(), active_search=any(v for k,v in request.args.items() if k not in ('sort','location_scope','back')), setup=setup, show_setup='setup_hidden' not in milestones and not all(setup.values()), **component_search())
 
     def uploaded(field, current):
         file = request.files.get(field)
@@ -354,10 +359,27 @@ def create_app(test_config=None):
         (upload_root / name).write_bytes(raw)
         return '/uploads/' + name
 
+    def local_back(value):
+        parsed = urlsplit(value)
+        if parsed.scheme or parsed.netloc or not value.startswith('/') or value.startswith('//') or '\\' in value or any(ord(c)<32 for c in value):
+            return '/'
+        if parsed.path not in ('/', '/search', '/storage') and not re.fullmatch(r'/drawers/\d+', parsed.path):
+            return '/'
+        return value
+
+    @app.get('/storage/<int:location_id>/add')
+    def storage_add_existing(location_id):
+        if g.user['role']=='viewer': abort(403)
+        location = one('SELECT * FROM locations WHERE id=?',(location_id,))
+        return render_template('storage_add.html', location=location, items=rows('SELECT * FROM components WHERE location_id IS NOT ? ORDER BY name',(location_id,)), back=local_back(request.args.get('back', '/search?location_id='+str(location_id))))
+
     @app.route('/components/new', methods=['GET', 'POST'])
     @app.route('/components/<int:item_id>/edit', methods=['GET', 'POST'])
     def edit_component(item_id=None):
+        back = local_back(request.form.get('back', request.args.get('back','/')))
         item = dict(one('SELECT * FROM components WHERE id=?', (item_id,))) if item_id else {}
+        if not item_id and request.args.get('location_id'):
+            item['location_id'] = one('SELECT id FROM locations WHERE id=?',(request.args['location_id'],))['id']
         if request.method == 'POST':
             f = request.form
             if item_id is None and db().execute('SELECT COUNT(*) FROM components').fetchone()[0] >= int(os.environ.get('MAX_WORKSPACE_COMPONENTS', '100000')):
@@ -394,6 +416,9 @@ def create_app(test_config=None):
                 supplier = f.get('new_supplier', '').strip()
                 if not supplier:
                     raise ValueError('Enter a new supplier name.')
+            if not supplier and f.get('supplier_manual') != '1':
+                from .suppliers import supplier_from_url
+                supplier = supplier_from_url(f.get('supplier_url',''))
             category_id = None
             if category:
                 db().execute('INSERT OR IGNORE INTO categories(name) VALUES(?)', (category,))
@@ -445,18 +470,16 @@ def create_app(test_config=None):
                 db().execute('INSERT INTO movements(component_id,delta,reason) VALUES(?,?,?)', (item_id, delta, 'Component saved by ' + g.user['username']))
             db().commit()
             flash('Component saved.')
-            return redirect(url_for('component', item_id=item_id))
+            return redirect(back if back!='/' else url_for('component', item_id=item_id))
         if item.get('category_id'):
             item['category'] = one('SELECT name FROM categories WHERE id=?', (item['category_id'],))['name']
         item['tags'] = ', '.join(r['name'] for r in rows('SELECT t.name FROM tags t JOIN component_tags ct ON ct.tag_id=t.id WHERE ct.component_id=? ORDER BY t.name', (item_id,))) if item_id else ''
-        return render_template('component_form.html', item=item, tags=rows('SELECT * FROM tags ORDER BY name'), suppliers=rows("SELECT DISTINCT supplier FROM components WHERE supplier!='' ORDER BY supplier"), categories=rows('SELECT * FROM categories ORDER BY name'), locations=location_options())
+        return render_template('component_form.html', back=back, item=item, tags=rows('SELECT * FROM tags ORDER BY name'), suppliers=rows("SELECT DISTINCT supplier FROM components WHERE supplier!='' ORDER BY supplier"), categories=rows('SELECT * FROM categories ORDER BY name'), locations=location_options())
 
     @app.get('/components/<int:item_id>')
     def component(item_id):
         back = request.args.get('back', '/')
-        parsed = urlsplit(back)
-        if parsed.scheme or parsed.netloc or parsed.path not in ('/', '/search') or '\\' in back:
-            back = '/'
+        back = local_back(back)
         return render_template('component.html', back=back, location_paths={l['id']:l['path'] for l in location_options()}, drawer=db().execute('SELECT d.* FROM cabinet_drawers d JOIN components c ON c.location_id=d.location_id WHERE c.id=?',(item_id,)).fetchone(), projects=rows('SELECT p.id,p.name,COALESCE(i.quantity,0) AS current_quantity FROM projects p LEFT JOIN project_items i ON i.project_id=p.id AND i.component_id=? ORDER BY p.name',(item_id,)), tags=rows('SELECT t.name FROM tags t JOIN component_tags ct ON ct.tag_id=t.id WHERE ct.component_id=? ORDER BY t.name', (item_id,)), item=one('SELECT c.*,cat.name AS category,l.name AS location FROM components c LEFT JOIN categories cat ON cat.id=c.category_id LEFT JOIN locations l ON l.id=c.location_id WHERE c.id=?', (item_id,)), movements=rows('SELECT * FROM movements WHERE component_id=? ORDER BY id DESC LIMIT 50', (item_id,)))
 
     @app.route('/components/<int:item_id>/delete', methods=['GET', 'POST'])

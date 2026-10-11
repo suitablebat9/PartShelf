@@ -1,8 +1,8 @@
-const savedTheme=localStorage.getItem('partshelf-theme');
+const savedTheme=document.documentElement.dataset.theme;
 document.body.dataset.theme=savedTheme||'light';
-document.querySelector('#theme-toggle')?.addEventListener('click',()=>{const theme=document.body.dataset.theme==='dark'?'light':'dark';document.body.dataset.theme=theme;localStorage.setItem('partshelf-theme',theme)});
+document.querySelector('#theme-toggle')?.addEventListener('click',()=>{const theme=document.body.dataset.theme==='dark'?'light':'dark';document.body.dataset.theme=theme;document.documentElement.dataset.theme=theme;localStorage.setItem('partshelf-theme',theme)});
 let dirty=false;document.addEventListener('input',()=>{dirty=true});
-if(document.querySelector('[data-auto-refresh]'))setInterval(()=>{if(!dirty&&!document.hidden&&!['INPUT','SELECT','TEXTAREA'].includes(document.activeElement.tagName))location.reload()},20000);
+if(document.querySelector('[data-auto-refresh]'))setInterval(()=>{if(!dirty&&!document.hidden&&!['INPUT','SELECT','TEXTAREA'].includes(document.activeElement.tagName))document.querySelector('#inventory-filters')?.dispatchEvent(new Event('refresh-inventory'))},20000);
 document.querySelectorAll('form[data-confirm]').forEach(form=>form.addEventListener('submit',e=>{if(!confirm(form.dataset.confirm))e.preventDefault()}));
 // Select zero on focus so the first typed digit replaces it without extra clicks.
 document.querySelectorAll('input[type="number"]').forEach(input=>{
@@ -118,7 +118,7 @@ if(filterForm){
       const page=new DOMParser().parseFromString(await response.text(),'text/html');
       if(version!==revision)return;
       const next=page.querySelector('#inventory-results');if(!next)throw new Error('Sign in again');
-      results.innerHTML=next.innerHTML;
+      results.innerHTML=next.innerHTML;const overview=document.querySelector('#overview-bar');if(overview)overview.innerHTML=page.querySelector('#overview-bar').innerHTML;document.querySelector('#overview-bar')?.toggleAttribute('hidden',!!filterForm.elements.location_id.value);const heading=document.querySelector('#inventory-heading');if(heading)heading.innerHTML=page.querySelector('#inventory-heading').innerHTML;
       const storageContext=document.querySelector('#storage-context');if(storageContext)storageContext.innerHTML=page.querySelector('#storage-context')?.innerHTML||'';
       const choices=[...page.querySelectorAll('.filter-choice input')];
       filterForm.querySelectorAll('.filter-choice input').forEach(input=>{
@@ -132,6 +132,7 @@ if(filterForm){
   filterForm.addEventListener('change',e=>{if(e.target.name)scheduleFilters()});
   filterForm.querySelector('[name="q"]').addEventListener('input',scheduleFilters);
   filterForm.addEventListener('submit',e=>{e.preventDefault();scheduleFilters()});
+  filterForm.addEventListener('refresh-inventory',()=>{if(!document.querySelector('[data-bulk-select]:checked')&&!document.querySelector('dialog[open]'))scheduleFilters()});
   renderFilterChips();
 }
 document.querySelector('#label-preset')?.addEventListener('change',e=>{if(e.target.value){const [w,h]=e.target.value.split(',');document.querySelector('#label-width').value=w;document.querySelector('#label-height').value=h;if(document.querySelector('#label-unit')?.value==='mm'){document.querySelector('#label-width').value=Number(w)*25.4;document.querySelector('#label-height').value=Number(h)*25.4}}});
@@ -205,10 +206,24 @@ const menuToggle=document.querySelector('.mobile-menu-toggle');
 if(menuToggle){const sidebar=menuToggle.closest('.sidebar');function closeMenu(){sidebar.classList.remove('menu-open');menuToggle.setAttribute('aria-expanded','false')}
  menuToggle.addEventListener('click',()=>{const open=sidebar.classList.toggle('menu-open');menuToggle.setAttribute('aria-expanded',String(open))});document.addEventListener('keydown',e=>{if(e.key==='Escape'&&sidebar.classList.contains('menu-open')){closeMenu();menuToggle.focus()}})}
 document.addEventListener('change',e=>{if(e.target.id==='show-extra-columns')document.querySelector('.inventory-table')?.classList.toggle('show-extra',e.target.checked)});
-if(labelForm){function syncPreset(){const scale=labelForm.elements.dimension_unit.value==='mm'?25.4:1,w=Number(labelForm.elements.width.value)/scale,h=Number(labelForm.elements.height.value)/scale,preset=document.querySelector('#label-preset');preset.value=[...preset.options].find(o=>o.value&&Math.abs(Number(o.value.split(',')[0])-w)<.00001&&Math.abs(Number(o.value.split(',')[1])-h)<.00001)?.value||'';const starter=document.querySelector('#label-starter');starter.value=[...starter.options].find(o=>o.value===labelForm.elements.text.value)?.value||''}labelForm.addEventListener('input',e=>{if(!['label-starter','label-preset'].includes(e.target.id))syncPreset()});labelForm.addEventListener('change',syncPreset);syncPreset()}
+if(labelForm){
+ const starter=document.querySelector('#label-starter'),editor=document.querySelector('#custom-label-editor');
+ starter.value=[...starter.options].find(o=>o.value===labelForm.elements.text.value)?.value||'';
+ function customEditor(){editor.hidden=starter.value!==''}starter.addEventListener('change',customEditor);customEditor();
+ function syncPreset(){const scale=labelForm.elements.dimension_unit.value==='mm'?25.4:1,w=Number(labelForm.elements.width.value)/scale,h=Number(labelForm.elements.height.value)/scale,preset=document.querySelector('#label-preset');preset.value=[...preset.options].find(o=>o.value&&Math.abs(Number(o.value.split(',')[0])-w)<.00001&&Math.abs(Number(o.value.split(',')[1])-h)<.00001)?.value||''}
+ labelForm.addEventListener('input',syncPreset);labelForm.addEventListener('change',syncPreset);syncPreset();
+}
 
 const footerMore=document.querySelector('.footer-more');
 if(footerMore){document.addEventListener('click',e=>{if(!footerMore.contains(e.target))footerMore.open=false});document.addEventListener('keydown',e=>{if(e.key==='Escape'&&footerMore.open){footerMore.open=false;footerMore.querySelector('summary').focus()}})}
 
 const stockToggle=document.querySelector('#stock-toggle'),stockPanel=document.querySelector('#adjust-stock');
 if(stockToggle&&stockPanel){const mobile=matchMedia('(max-width:700px)');function showStock(open){stockPanel.hidden=!open;stockToggle.setAttribute('aria-expanded',String(open))}function stockLayout(){showStock(!mobile.matches)}stockLayout();mobile.addEventListener('change',stockLayout);stockToggle.addEventListener('click',()=>{const open=mobile.matches?stockPanel.hidden:true;showStock(open);if(open){stockPanel.scrollIntoView({block:'nearest',behavior:'smooth'});stockPanel.querySelector('[name=quantity]').focus({preventScroll:true})}})}
+
+document.addEventListener('click',e=>{if(e.target.closest('[data-print]'))window.print()});
+const supplierLink=document.querySelector('[name=supplier_url]'),supplierSelect=document.querySelector('#supplier-select'),supplierManual=document.querySelector('#supplier-manual');
+if(supplierLink&&supplierSelect){supplierSelect.addEventListener('change',()=>supplierManual.value='1');supplierLink.addEventListener('input',()=>{if(supplierManual.value==='1')return;let host;try{host=new URL(supplierLink.value).hostname.toLowerCase().replace(/^www\./,'')}catch{return}const brands={'digikey.com':'Digi-Key','digikey.ca':'Digi-Key','mouser.com':'Mouser','aliexpress.com':'AliExpress','amazon.com':'Amazon','lcsc.com':'LCSC','adafruit.com':'Adafruit','sparkfun.com':'SparkFun','ebay.com':'eBay'};const key=Object.keys(brands).find(k=>host===k||host.endsWith('.'+k)),name=brands[key]||host;let option=[...supplierSelect.options].find(o=>o.value.toLowerCase()===name.toLowerCase());if(!option){option=new Option(name,name);supplierSelect.add(option)}supplierSelect.value=option.value;});}
+
+document.querySelector('#existing-search')?.addEventListener('input',e=>document.querySelectorAll('[data-existing-part]').forEach(row=>row.hidden=!row.textContent.toLowerCase().includes(e.target.value.toLowerCase())));
+
+let printDetails=[];addEventListener('beforeprint',()=>{printDetails=[...document.querySelectorAll('main details:not([open])')];printDetails.forEach(d=>d.open=true)});addEventListener('afterprint',()=>{printDetails.forEach(d=>d.open=false);printDetails=[]});

@@ -213,7 +213,7 @@ def install_workflows(app, db, number, safe_url, location_options):
         source={key:request.form.get(key,'') for key in ('action','location_id','tags','quantity','reason')}
         source['ids']=list(dict.fromkeys(request.form.getlist('component_ids')))
         try:
-            return stage('bulk',source,bulk_plan(source),url_for('index'))
+            return stage('bulk',source,bulk_plan(source),('/search?location_id='+str(int(source['location_id']))) if source['action']=='move' and source['location_id'].isdigit() else url_for('index'))
         except ValueError as error:
             flash(str(error),'error')
             return redirect(url_for('index'))

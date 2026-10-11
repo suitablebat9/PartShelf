@@ -30,10 +30,12 @@ def migrate_drawers(db):
         actor INTEGER NOT NULL, created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
     columns = {r[1] for r in db.execute('PRAGMA table_info(cabinets)')}
-    for name, definition in {'column_count':'INTEGER NOT NULL DEFAULT 8', 'section_rows':'INTEGER NOT NULL DEFAULT 8', 'color':"TEXT NOT NULL DEFAULT '#527aa3'"}.items():
+    for name, definition in {'column_count':'INTEGER NOT NULL DEFAULT 8', 'section_rows':'INTEGER NOT NULL DEFAULT 8', 'color':"TEXT NOT NULL DEFAULT '#527aa3'", 'image':"TEXT NOT NULL DEFAULT ''"}.items():
         if name not in columns: db.execute(f'ALTER TABLE cabinets ADD COLUMN {name} {definition}')
     if 'color' not in {r[1] for r in db.execute('PRAGMA table_info(cabinet_drawers)')}:
         db.execute("ALTER TABLE cabinet_drawers ADD COLUMN color TEXT NOT NULL DEFAULT ''")
+    if 'image' not in {r[1] for r in db.execute('PRAGMA table_info(cabinet_drawers)')}:
+        db.execute("ALTER TABLE cabinet_drawers ADD COLUMN image TEXT NOT NULL DEFAULT ''")
     db.execute('CREATE UNIQUE INDEX IF NOT EXISTS one_cabinet_command ON cabinet_commands(cabinet_id) WHERE active=1')
 
 
@@ -91,7 +93,7 @@ def device_request(cabinet, method, path, payload=None):
             response.close()
 
 
-def install_drawers(app, db):
+def install_drawers(app, db, upload_image=None):
     app.config.setdefault('DEVICE_ENDPOINTS', json.loads(os.environ.get('PARTSHELF_DEVICE_ENDPOINTS', '{}')))
     bp = Blueprint('drawers', __name__)
     app.jinja_env.globals['row_name'] = row_name
@@ -152,8 +154,11 @@ def install_drawers(app, db):
         access()
         item = cabinet(cid)
         slots = []
+        parts_by_location = {}
+        for part in db().execute('SELECT id,name,name_id,stock,unit,location_id FROM components ORDER BY name'):
+            parts_by_location.setdefault(part['location_id'], []).append(dict(part))
         for slot in db().execute('SELECT * FROM cabinet_drawers WHERE cabinet_id=? ORDER BY row,col', (cid,)):
-            slots.append(dict(slot, label=f'{row_name(slot["row"])}{slot["col"]}', parts=[dict(p) for p in db().execute('SELECT id,name,name_id,stock,unit FROM components WHERE location_id=? ORDER BY name', (slot['location_id'],))]))
+            slots.append(dict(slot, label=f'{row_name(slot["row"])}{slot["col"]}', parts=parts_by_location.get(slot['location_id'], [])))
         active = db().execute('SELECT * FROM cabinet_commands WHERE cabinet_id=? AND active=1', (cid,)).fetchone()
         history = db().execute('SELECT * FROM cabinet_commands WHERE cabinet_id=? ORDER BY created DESC,rowid DESC LIMIT 10', (cid,)).fetchall()
         return render_template('drawer_cabinet.html', cabinet=item, slots=slots, active=active, history=history,
@@ -165,7 +170,9 @@ def install_drawers(app, db):
         name=request.form.get('name','').strip()
         if not name or len(name)>100: raise ValueError('Enter an organizer name of up to 100 characters.')
         color=color_value(request.form.get('color',''))
-        db().execute('UPDATE cabinets SET name=?,color=? WHERE id=?',(name,color,cid))
+        image = upload_image(item['image']) if upload_image else item['image']
+        if request.form.get('remove_image'): image = ''
+        db().execute('UPDATE cabinets SET name=?,color=?,image=? WHERE id=?',(name,color,image,cid))
         db().execute('UPDATE locations SET name=? WHERE id=?',(name,item['location_id']))
         db().commit()
         return redirect(f'/drawers/{cid}')
@@ -175,7 +182,11 @@ def install_drawers(app, db):
         access(); cabinet(cid)
         color=color_value('' if request.form.get('reset')=='1' else request.form.get('color',''),allow_empty=True)
         row,col=request.form.get('row'),request.form.get('col')
-        if not db().execute('UPDATE cabinet_drawers SET color=? WHERE cabinet_id=? AND row=? AND col=?',(color,cid,row,col)).rowcount: abort(404)
+        slot=db().execute('SELECT * FROM cabinet_drawers WHERE cabinet_id=? AND row=? AND col=?',(cid,row,col)).fetchone()
+        if not slot: abort(404)
+        image=upload_image(slot['image']) if upload_image else slot['image']
+        if request.form.get('remove_image'): image=''
+        db().execute('UPDATE cabinet_drawers SET color=?,image=? WHERE cabinet_id=? AND row=? AND col=?',(color,image,cid,row,col))
         db().commit()
         return redirect(f'/drawers/{cid}?slot={row}-{col}')
 
