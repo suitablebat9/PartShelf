@@ -10,10 +10,10 @@ from decimal import Decimal, ROUND_CEILING
 from functools import wraps
 from urllib.parse import urlsplit
 
-from flask import Blueprint, abort, flash, g, redirect, render_template, request, Response, session, url_for
+from flask import Blueprint, abort, flash, g, redirect, render_template, request, Response, session, url_for, jsonify
 
 CSV_FIELDS = ('name','name_id','stock','unit','unit_price','category','storage','code','description','supplier','supplier_url','tags','size','resistance','capacitance','voltage','tolerance','attributes','low_stock','purchase_quantity','purchase_pack')
-WRITE_ENDPOINTS = ('workflows.import_inventory','workflows.import_bom','workflows.confirm','workflows.bulk','workflows.duplicate','workflows.dismiss_setup')
+WRITE_ENDPOINTS = ('workflows.quick_stock','workflows.undo_quick_stock','workflows.import_inventory','workflows.import_bom','workflows.confirm','workflows.bulk','workflows.duplicate','workflows.dismiss_setup')
 DEMO_ENDPOINTS = WRITE_ENDPOINTS + ('workflows.csv_template','workflows.shopping_list','workflows.scan','workflows.help')
 
 
@@ -190,13 +190,16 @@ def install_workflows(app, db, number, safe_url, location_options):
             location=source.get('location_id')
             if location: one('SELECT id FROM locations WHERE id=?',(location,))
             plan['location_id']=int(location) if location else None
-            plan['location_name']=next((l['path'] for l in location_options() if l['id']==plan['location_id']),'Unassigned')
+            paths={l['id']:l['path'] for l in location_options()}
+            plan['location_name']=paths.get(plan['location_id'],'Unassigned')
+            for item in items: item['location_name']=paths.get(item['location_id'],'Unassigned')
         elif action.startswith('tag_'):
             plan['tags']=tags(source.get('tags',''))
             if not plan['tags']: raise ValueError('Enter at least one tag.')
             for item in items:
                 current={r['name'] for r in db().execute('SELECT t.name FROM tags t JOIN component_tags ct ON ct.tag_id=t.id WHERE ct.component_id=?',(item['id'],))}
                 item['tags']=sorted(current)
+                item['new_tags']=sorted(current|set(plan['tags']) if action=='tag_add' else current-set(plan['tags']))
                 if action=='tag_add' and len(current|set(plan['tags']))>30: raise ValueError('One of these parts would have more than 30 tags.')
         else:
             qty=number(source.get('quantity',''),Decimal('0.000001'))
@@ -207,6 +210,50 @@ def install_workflows(app, db, number, safe_url, location_options):
                 if result<0: raise ValueError(f"Not enough stock for {item['name']}. Nothing was changed.")
                 item['result']=float(number(result))
         return plan
+
+    @bp.post('/inventory/quick-stock')
+    @editor
+    def quick_stock():
+        try:
+            token=request.form.get('token','')
+            if not 16<=len(token)<=100 or not all(c.isalnum() or c=='-' for c in token): raise ValueError('Reload and try again.')
+            direction=request.form.get('direction')
+            if direction not in ('add','remove'): raise ValueError('Choose add or remove stock.')
+            delta=float(number(request.form.get('quantity',''),Decimal('0.000001')))*(1 if direction=='add' else -1)
+            db().execute('BEGIN IMMEDIATE')
+            prior=db().execute('SELECT * FROM quick_stock_changes WHERE token=?',(token,)).fetchone()
+            if prior:
+                db().rollback()
+                if prior['actor']!=actor(): abort(409)
+                return jsonify(token=token, message='This change was already saved. Reload to see current stock.', replay=True)
+            item=one('SELECT * FROM components WHERE id=?',(request.form.get('component_id'),))
+            if str(item['version'])!=request.form.get('version'): raise ValueError('This component changed. Reload before adjusting stock.')
+            if item['stock']+delta<0: raise ValueError('Not enough stock for that adjustment.')
+            result=number(item['stock']+delta)
+            db().execute('UPDATE components SET stock=?,version=version+1 WHERE id=?',(float(result),item['id']))
+            db().execute('INSERT INTO movements(component_id,delta,reason) VALUES(?,?,?)',(item['id'],delta,request.form.get('reason','').strip()[:500] or 'Quick stock adjustment'))
+            db().execute('INSERT INTO quick_stock_changes VALUES(?,?,?,?,?,0,?)',(token,actor(),item['id'],delta,item['version']+1,int(time.time())))
+            db().commit()
+            return jsonify(token=token,stock=float(result),version=item['version']+1,message='Stock updated.')
+        except ValueError as error:
+            db().rollback(); return jsonify(error=str(error)),400
+
+    @bp.post('/inventory/quick-stock/<token>/undo')
+    @editor
+    def undo_quick_stock(token):
+        db().execute('BEGIN IMMEDIATE')
+        change=db().execute('SELECT * FROM quick_stock_changes WHERE token=? AND actor=?',(token,actor())).fetchone()
+        if not change or change['undone'] or change['created']<int(time.time())-600:
+            db().rollback();return jsonify(error='Undo expired or was already used.'),409
+        item=db().execute('SELECT * FROM components WHERE id=?',(change['component_id'],)).fetchone()
+        if not item or item['version']!=change['version'] or item['stock']-change['delta']<0:
+            db().rollback();return jsonify(error='Stock changed again. Review the component before making another adjustment.'),409
+        result=item['stock']-change['delta']
+        db().execute('UPDATE components SET stock=?,version=version+1 WHERE id=?',(result,item['id']))
+        db().execute('UPDATE quick_stock_changes SET undone=1 WHERE token=?',(token,))
+        db().execute('INSERT INTO movements(component_id,delta,reason) VALUES(?,?,?)',(item['id'],-change['delta'],'Undo quick stock adjustment'))
+        db().commit()
+        return jsonify(stock=result,version=item['version']+1)
 
     @bp.post('/inventory/bulk')
     @editor

@@ -23,6 +23,7 @@ def migrate(connection):
         connection.execute('CREATE TABLE IF NOT EXISTS project_builds(id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE, build_count INTEGER NOT NULL, parts TEXT NOT NULL, created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, undone INTEGER NOT NULL DEFAULT 0)')
         connection.execute('CREATE TABLE IF NOT EXISTS workflow_previews(token TEXT PRIMARY KEY, actor TEXT NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL, expires INTEGER NOT NULL)')
         connection.execute('CREATE TABLE IF NOT EXISTS workspace_milestones(key TEXT PRIMARY KEY, completed INTEGER NOT NULL DEFAULT 1)')
+        connection.execute('CREATE TABLE IF NOT EXISTS quick_stock_changes(token TEXT PRIMARY KEY, actor TEXT NOT NULL, component_id INTEGER NOT NULL, delta REAL NOT NULL, version INTEGER NOT NULL, undone INTEGER NOT NULL DEFAULT 0, created INTEGER NOT NULL)')
         from .security_schema import migrate_security
         migrate_security(connection)
         from .drawers import migrate_drawers

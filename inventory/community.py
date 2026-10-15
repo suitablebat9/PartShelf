@@ -65,6 +65,23 @@ DEFAULTS = {'no_paywall':PROMISE, 'about_name':'Carson', 'about_text':"I'm the c
 
 
 def install_community(app, db, auth):
+    @app.template_filter('policy_blocks')
+    def policy_blocks(text):
+        known={p.split('\n')[0].strip() for source in (TERMS,PRIVACY) for p in source.split('\n\n')}
+        lines=text.replace('\r','').split('\n')
+        blocks=[]; paragraph=[]
+        def flush():
+            if paragraph: blocks.append(dict(heading=False,text='\n'.join(paragraph)));paragraph.clear()
+        for index,line in enumerate(lines):
+            line=line.strip()
+            next_line=lines[index+1].strip() if index+1<len(lines) else ''
+            heading=line in known or (len(line)<100 and bool(re.match(r'^\d+[.)] ',line))) or (0<len(line)<80 and not line.endswith(('.',':','?')) and len(next_line)>80)
+            if not line: flush()
+            elif heading: flush();blocks.append(dict(heading=True,text=line))
+            else: paragraph.append(line)
+        flush()
+        return blocks
+
     bp = Blueprint('community', __name__)
     with app.app_context():
         db().executescript('''CREATE TABLE IF NOT EXISTS feedback(

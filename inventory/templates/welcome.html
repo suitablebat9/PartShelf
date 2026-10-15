@@ -2,7 +2,7 @@
 <section class="public-hero">
 <h1>Electronics inventory<br>for your workshop.</h1>
 <p class="lead">Track components, organize storage, plan project purchases, and print labels. Free to use, with shared workspaces for your team.</p>
-<div class="actions">{% if g.user and not g.demo %}<a class="button" href="/">Open inventory</a>{% else %}<a class="button" href="/register">Create a workspace</a><a class="button secondary sign-in-cta" href="/login">Sign in</a>{% endif %}<a class="button secondary" href="/demo">Try the demo</a></div>
+<div class="actions">{% if g.user and not g.demo %}<a class="button" href="/">Open inventory</a>{% else %}<a class="button" href="/register">Create a workspace</a>{% endif %}<form action="/demo" method="post"><input type="hidden" name="csrf" value="{{ csrf() }}"><button class="secondary">Try demo</button></form></div>
 </section>
 <figure class="product-preview"><a href="/demo"><picture><source media="(max-width:700px)" srcset="{{ url_for('static',filename='branding/product-preview-mobile.png') }}"><img src="{{ url_for('static',filename='branding/product-preview.png') }}" width="1080" height="660" alt="Current Partshelf sample inventory showing resistor quantities and storage locations" loading="eager" fetchpriority="high"></picture></a><figcaption>Sample parts in the current Partshelf interface. <a href="/demo">Try this inventory →</a></figcaption></figure>
 <section class="public-grid" aria-label="Features">

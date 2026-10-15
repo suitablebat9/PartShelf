@@ -177,7 +177,7 @@ def create_app(test_config=None):
 
     @app.after_request
     def headers(response):
-        if getattr(g, 'user', None) and getattr(g, 'workspace', None) and request.method == 'POST' and response.status_code < 400 and request.endpoint in ('edit_component', 'adjust_stock', 'consume', 'undo_build', 'workflows.confirm'):
+        if getattr(g, 'user', None) and getattr(g, 'workspace', None) and request.method == 'POST' and response.status_code < 400 and request.endpoint in ('edit_component', 'adjust_stock', 'consume', 'undo_build', 'workflows.confirm','workflows.quick_stock','workflows.undo_quick_stock'):
             db().execute('DELETE FROM stock_alerts WHERE component_id IN (SELECT id FROM components WHERE low_stock IS NULL OR stock>CAST(low_stock AS REAL))')
             db().commit()
         response.headers['X-Content-Type-Options'] = 'nosniff'
@@ -304,7 +304,7 @@ def create_app(test_config=None):
         elif request.args.get('stock') == 'out':
             clauses.append('c.stock=0')
         elif request.args.get('stock') == 'low':
-            clauses.append('c.low_stock IS NOT NULL AND c.stock<=CAST(c.low_stock AS REAL)')
+            clauses.append('c.stock>0 AND c.low_stock IS NOT NULL AND c.stock<=CAST(c.low_stock AS REAL)')
         elif request.args.get('stock') == 'restock':
             clauses.append('(c.stock=0 OR (c.low_stock IS NOT NULL AND c.stock<=CAST(c.low_stock AS REAL)))')
         facets = {}
@@ -326,7 +326,7 @@ def create_app(test_config=None):
         all_items = rows('SELECT stock,unit_price,low_stock,price_recorded FROM components')
         locations = location_options()
         drawer_ids = {r['location_id'] for r in rows('SELECT location_id FROM cabinet_drawers')}
-        return dict(unpriced_inventory=sum(not r['price_recorded'] for r in all_items), low=sum(r['low_stock'] is not None and r['stock']<=float(r['low_stock']) for r in all_items), storage_count=db().execute('SELECT COUNT(*) FROM locations WHERE id NOT IN (SELECT location_id FROM cabinet_drawers)').fetchone()[0], items=items, facets=facets, tags=rows('SELECT * FROM tags ORDER BY name'), categories=rows('SELECT * FROM categories ORDER BY name'), locations=locations, filter_locations=[l for l in locations if l['id'] not in drawer_ids], suppliers=rows("SELECT DISTINCT supplier FROM components WHERE supplier!='' ORDER BY supplier"), total=len(all_items), empty=sum(r['stock']==0 for r in all_items), value=sum(Decimal(str(r['stock']))*Decimal(r['unit_price']) for r in all_items))
+        return dict(unpriced_inventory=sum(not r['price_recorded'] for r in all_items), low=sum(r['stock']>0 and r['low_stock'] is not None and r['stock']<=float(r['low_stock']) for r in all_items), storage_count=db().execute('SELECT COUNT(*) FROM locations WHERE id NOT IN (SELECT location_id FROM cabinet_drawers)').fetchone()[0], items=items, facets=facets, tags=rows('SELECT * FROM tags ORDER BY name'), categories=rows('SELECT * FROM categories ORDER BY name'), location_paths={l['id']:l['path'] for l in locations}, locations=locations, filter_locations=[l for l in locations if l['id'] not in drawer_ids], suppliers=rows("SELECT DISTINCT supplier FROM components WHERE supplier!='' ORDER BY supplier"), total=len(all_items), empty=sum(r['stock']==0 for r in all_items), value=sum(Decimal(str(r['stock']))*Decimal(r['unit_price']) for r in all_items))
 
     from .workflows import install_workflows
     install_workflows(app, db, number, safe_url, location_options)
@@ -481,10 +481,10 @@ def create_app(test_config=None):
         return render_template('component_form.html', back=back, item=item, tags=rows('SELECT * FROM tags ORDER BY name'), suppliers=rows("SELECT DISTINCT supplier FROM components WHERE supplier!='' ORDER BY supplier"), categories=rows('SELECT * FROM categories ORDER BY name'), locations=location_options())
 
     @app.get('/components/<int:item_id>')
-    def component(item_id):
-        back = request.args.get('back', '/')
+    def component(item_id, stock_error=None):
+        back = request.form.get('back', request.args.get('back', '/'))
         back = local_back(back)
-        return render_template('component.html', back=back, location_paths={l['id']:l['path'] for l in location_options()}, drawer=db().execute('SELECT d.* FROM cabinet_drawers d JOIN components c ON c.location_id=d.location_id WHERE c.id=?',(item_id,)).fetchone(), projects=rows('SELECT p.id,p.name,COALESCE(i.quantity,0) AS current_quantity FROM projects p LEFT JOIN project_items i ON i.project_id=p.id AND i.component_id=? ORDER BY p.name',(item_id,)), tags=rows('SELECT t.name FROM tags t JOIN component_tags ct ON ct.tag_id=t.id WHERE ct.component_id=? ORDER BY t.name', (item_id,)), item=one('SELECT c.*,cat.name AS category,l.name AS location FROM components c LEFT JOIN categories cat ON cat.id=c.category_id LEFT JOIN locations l ON l.id=c.location_id WHERE c.id=?', (item_id,)), movements=rows('SELECT * FROM movements WHERE component_id=? ORDER BY id DESC LIMIT 50', (item_id,)))
+        return render_template('component.html', stock_error=stock_error, stock_form=request.form if stock_error else {}, back=back, location_paths={l['id']:l['path'] for l in location_options()}, drawer=db().execute('SELECT d.* FROM cabinet_drawers d JOIN components c ON c.location_id=d.location_id WHERE c.id=?',(item_id,)).fetchone(), projects=rows('SELECT p.id,p.name,COALESCE(i.quantity,0) AS current_quantity FROM projects p LEFT JOIN project_items i ON i.project_id=p.id AND i.component_id=? ORDER BY p.name',(item_id,)), tags=rows('SELECT t.name FROM tags t JOIN component_tags ct ON ct.tag_id=t.id WHERE ct.component_id=? ORDER BY t.name', (item_id,)), item=one('SELECT c.*,cat.name AS category,l.name AS location FROM components c LEFT JOIN categories cat ON cat.id=c.category_id LEFT JOIN locations l ON l.id=c.location_id WHERE c.id=?', (item_id,)), movements=rows('SELECT * FROM movements WHERE component_id=? ORDER BY id DESC LIMIT 50', (item_id,)))
 
     @app.route('/components/<int:item_id>/delete', methods=['GET', 'POST'])
     def delete_component(item_id):
@@ -525,16 +525,22 @@ def create_app(test_config=None):
 
     @app.post('/components/<int:item_id>/stock')
     def adjust_stock(item_id):
-        magnitude = number(request.form.get('quantity', '0'))
-        delta = float(magnitude) * (-1 if request.form.get('direction') == 'remove' else 1)
-        db().execute('BEGIN IMMEDIATE')
-        item = one('SELECT stock FROM components WHERE id=?', (item_id,))
-        if item['stock'] + delta < 0:
-            raise ValueError('Not enough stock for that adjustment.')
-        db().execute('UPDATE components SET stock=stock+?,version=version+1 WHERE id=?', (delta, item_id))
-        db().execute('INSERT INTO movements(component_id,delta,reason) VALUES(?,?,?)', (item_id, delta, request.form.get('reason', '').strip() or 'Manual adjustment'))
-        db().commit()
-        return redirect(url_for('component', item_id=item_id))
+        back=local_back(request.form.get('back','/'))
+        try:
+            magnitude = number(request.form.get('quantity', '0'), Decimal('0.000001'))
+            if request.form.get('direction') not in ('add','remove'): raise ValueError('Choose add or remove stock.')
+            delta = float(magnitude) * (-1 if request.form.get('direction') == 'remove' else 1)
+            db().execute('BEGIN IMMEDIATE')
+            item = one('SELECT stock FROM components WHERE id=?', (item_id,))
+            if item['stock'] + delta < 0:
+                raise ValueError('Not enough stock for that adjustment.')
+            db().execute('UPDATE components SET stock=stock+?,version=version+1 WHERE id=?', (delta, item_id))
+            db().execute('INSERT INTO movements(component_id,delta,reason) VALUES(?,?,?)', (item_id, delta, request.form.get('reason', '').strip() or 'Manual adjustment'))
+            db().commit()
+        except ValueError as error:
+            db().rollback()
+            return component(item_id, str(error)), 400
+        return redirect(url_for('component', item_id=item_id, back=back))
 
     @app.route('/storage', methods=['GET', 'POST'])
     def storage():
@@ -675,7 +681,8 @@ def create_app(test_config=None):
     @app.template_filter('unitmoney')
     def unitmoney(value):
         amount=Decimal(str(value))
-        return format(amount, '.6f').rstrip('0').rstrip('.') if amount and abs(amount)<1 else format(amount,'.2f')
+        precise=format(amount, '.6f').rstrip('0').rstrip('.')
+        return precise if '.' in precise and len(precise.split('.')[1])>2 else format(amount,'.2f')
 
     @app.get('/labels')
     def labels():

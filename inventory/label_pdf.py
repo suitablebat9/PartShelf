@@ -95,7 +95,7 @@ def render_pdf(items, options):
                 # Use the full short edge on wide/tall labels. On compact labels,
                 # reserve space for legible text instead of shrinking every QR to
                 # a fixed fraction of the label width. Portrait text goes below.
-                landscape = area_w >= area_h
+                landscape = area_w > area_h * 1.25
                 short, long = sorted((area_w, area_h))
                 size = min(short, (long-gap)*.65) if text else short
                 image = qrcode.make(item['code'], border=0 if not any((left, right, top, bottom)) else 4).convert('RGB')
@@ -125,13 +125,16 @@ def render_pdf(items, options):
                     th = area_h-code_h-gap
             if text:
                 size = options['size']
-                while size >= 4:
+                # Preserve identifiers as whole words before considering character wrapping.
+                longest=max((stringWidth(word,font,1) for word in text.split()),default=1)
+                size=min(size,max(5,tw/longest))
+                while size >= 5:
                     lines = wrap(text, font, size, tw)
                     if len(lines)*size*1.2 <= th and all(stringWidth(line, font, size) <= tw for line in lines):
                         break
                     size -= .5
-                if size < 4:
-                    raise ValueError(f"{item['name']}: text cannot fit legibly. Shorten the text or increase label size.")
+                if size < 5:
+                    raise ValueError(f"{item['name']}: label text would be too small to read. Shorten the text, increase label size, or choose a code-only label.")
                 canvas.setFont(font, size)
                 y = ty + (th+len(lines)*size*1.2)/2-size
                 for line in lines:

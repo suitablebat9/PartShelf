@@ -140,11 +140,11 @@ def test_templates_scanner_help_and_checklist(app,client):
     scan=client.get('/scan')
     assert b'vendor/zxing-browser-0.1.5.min.js' in scan.data and 'blob:' in scan.headers['Content-Security-Policy']
     assert client.get('/help').status_code==200
-    assert b'0 of 4 complete' in client.get('/').data
+    assert b'Add your first part' in client.get('/').data
     part(client);post(client,'/storage',name='Shelf',kind='Shelf');post(client,'/projects',name='Build')
-    assert b'3 of 4 complete' in client.get('/').data
+    assert b'Optional workspace tools' in client.get('/').data
     assert post(client,'/labels/pdf',component_ids='1',copies='1').status_code==200
-    assert b'Workspace setup' not in client.get('/').data
+    assert b'Optional workspace tools' not in client.get('/').data
 
 
 def test_roadmap_publisher_idempotent_and_preserves_manual_edits(app):

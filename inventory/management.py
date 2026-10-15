@@ -79,7 +79,39 @@ def install_management(app, db, auth):
             db().execute(f'DELETE FROM {table} WHERE user_id=?', (user_id,))
         db().execute('DELETE FROM invitations WHERE created_by=?', (user_id,))
 
+    def registration_view(error=None):
+        ready=registration_open() and mail_ready() and app.config['PUBLIC_URL'].startswith('https://')
+        google_ready=registration_open() and bool(app.config['GOOGLE_CLIENT_ID'] and app.config['GOOGLE_CLIENT_SECRET'] and app.config['PUBLIC_URL'].startswith('https://'))
+        return render_template('register.html', ready=ready, google_ready=google_ready, error=error, values=request.form)
+
+    def registration_recovery():
+        try: return auth['get_challenge']('registration_recovery')['payload']
+        except ValueError: return None
+
+    def verification_view(error=None):
+        payload=registration_recovery()
+        email=(payload or {}).get('email','')
+        masked=(email[:1]+'•••@'+email.split('@')[-1]) if '@' in email else ''
+        return render_template('registration_verify.html', error=error, masked_email=masked, recoverable=bool(payload), cooldown=max(0,60-(int(time.time())-session.get('registration_sent',0))))
+
+    def inline_registration(view):
+        @wraps(view)
+        def wrapped(*args,**kwargs):
+            try: return view(*args,**kwargs)
+            except ValueError as error:
+                db().rollback()
+                return (verification_view(str(error)) if request.endpoint=='manage.verify_registration' else registration_view(str(error))),400
+        return wrapped
+
+    def send_registration(payload):
+        code=f'{secrets.randbelow(1000000):06d}'
+        auth['challenge']('registration_recovery',payload=payload,ttl=1800)
+        auth['challenge']('registration',payload=payload,code=code)
+        send_email(payload['email'],f'{code} — Partshelf account creation code',f'Your verification code is {code}. It expires in 10 minutes. Only the newest code works.')
+        session['registration_sent']=int(time.time())
+
     @bp.route('/register', methods=['GET', 'POST'])
+    @inline_registration
     def register():
         ready = registration_open() and mail_ready() and app.config['PUBLIC_URL'].startswith('https://')
         if request.method == 'POST':
@@ -94,12 +126,9 @@ def install_management(app, db, auth):
                 raise ValueError('Enter a workspace name of up to 100 characters.')
             if db().execute('SELECT 1 FROM users WHERE email=? COLLATE NOCASE OR username=? COLLATE NOCASE', (email, email)).fetchone():
                 raise ValueError('This email already has an account. Sign in or reset your password.')
-            code = f'{secrets.randbelow(1000000):06d}'
-            auth['challenge']('registration', payload=dict(username=username, password=password, email=email, name=name), code=code)
-            send_email(email, 'Verify your new Partshelf workspace', f'Your verification code is {code}. It expires in 10 minutes. Ignore this email if you did not request an account.')
+            send_registration(dict(username=username,password=password,email=email,name=name))
             return redirect(url_for('manage.verify_registration'))
-        google_ready = registration_open() and bool(app.config['GOOGLE_CLIENT_ID'] and app.config['GOOGLE_CLIENT_SECRET'] and app.config['PUBLIC_URL'].startswith('https://'))
-        return render_template('register.html', ready=ready, google_ready=google_ready)
+        return registration_view()
 
     @bp.route('/register/google', methods=['GET', 'POST'])
     def google_registration():
@@ -128,9 +157,24 @@ def install_management(app, db, auth):
         return render_template('google_registration.html', email=pending['payload']['email'])
 
     @bp.route('/register/verify', methods=['GET', 'POST'])
+    @inline_registration
     def verify_registration():
         if not registration_open():
             abort(403)
+        if request.method=='POST' and request.form.get('action') in ('resend','change_email'):
+            payload=registration_recovery()
+            if not payload: raise ValueError('Your signup session expired. Please start again.')
+            if int(time.time())-session.get('registration_sent',0)<60:
+                raise ValueError('Wait one minute between code requests.')
+            auth['limit']('signup-resend:'+str(request.remote_addr),10,3600)
+            if request.form.get('action')=='change_email':
+                payload['email']=email_value(request.form.get('email',''))
+                if db().execute('SELECT 1 FROM users WHERE email=? COLLATE NOCASE OR username=? COLLATE NOCASE',(payload['email'],payload['email'])).fetchone():
+                    raise ValueError('This email already has an account. Sign in or reset your password.')
+            auth['limit']('signup-email:'+payload['email'],3,3600)
+            send_registration(payload)
+            flash('A new code was sent. Only the newest code will work.')
+            return redirect(url_for('manage.verify_registration'))
         if request.method == 'POST':
             auth['limit']('signup-verify:'+str(request.remote_addr), 20, 900)
             payload = auth['consume']('registration', request.form.get('code', ''))['payload']
@@ -148,11 +192,13 @@ def install_management(app, db, auth):
                 db().rollback()
                 raise
             user = db().execute('SELECT * FROM users WHERE email=? COLLATE NOCASE',(payload['email'],)).fetchone()
+            db().execute('DELETE FROM auth_challenges WHERE id=?',(session.pop('registration_recovery', ''),))
+            db().commit()
             auth['finish_login'](user, False)
             flash('Email verified. Your workspace is ready.')
             return redirect(url_for('index'))
         auth['get_challenge']('registration')
-        return render_template('registration_verify.html')
+        return verification_view()
 
     @bp.get('/management')
     def dashboard():

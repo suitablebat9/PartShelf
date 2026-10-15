@@ -19,7 +19,7 @@ def install_preferences(app,db):
             if key=='management':
                 if not user or not (user['platform_admin'] or user['role'] in ('owner','admin')): continue
                 label='Client management' if user['platform_admin'] else label
-            choices.append(dict(key=key,label=label,url=url,icon=icon))
+            choices.append(dict(key=key,label=label,url=url,icon=icon,default_visible=not (key=='management' and user and not user['platform_admin'] and db().execute('SELECT COUNT(*) FROM users WHERE workspace_id=? AND deleted_at IS NULL',(user['workspace_id'],)).fetchone()[0]<=1)))
         if user and getattr(g,'workspace',None) and not getattr(g,'demo',False):
             inventory=app.extensions['partshelf_inventory_db']()
             for loc in inventory.execute('SELECT l.id,l.name,c.id AS cabinet_id FROM locations l LEFT JOIN cabinets c ON c.location_id=l.id WHERE l.id NOT IN (SELECT location_id FROM cabinet_drawers) ORDER BY l.name'):
